@@ -135,3 +135,17 @@ pub fn assert_clean(run: &Run) {
         run.stderr
     );
 }
+
+/// The kbuild component: the same crate built with `--features kbuild`, into
+/// its own target directory so it does not replace the default one:
+/// `cargo component build --features kbuild --target-dir target-kbuild`.
+pub fn kbuild_component() -> PathBuf {
+    let path = manifest_dir().join("target-kbuild/wasm32-wasip1/debug/makers_bazel_plugin.wasm");
+    assert!(
+        path.exists(),
+        "build the kbuild plugin first: cargo component build --features kbuild \
+         --target-dir target-kbuild (looked for {})",
+        path.display()
+    );
+    path
+}

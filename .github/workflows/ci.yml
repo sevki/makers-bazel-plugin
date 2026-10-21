@@ -28,11 +28,14 @@ jobs:
       - name: Install cargo-component
         run: command -v cargo-component || cargo install cargo-component --locked
 
+      # TODO: drop `--branch` once sevki/makers#687 (node.expand) has merged.
       - name: Install makers (make with the plugin host)
-        run: cargo install --git https://github.com/sevki/makers make-sys --features wasmtime --bin make --locked --root "$HOME/makers" --force
+        run: cargo install --git https://github.com/sevki/makers --branch plugin-node-expand make-sys --features wasmtime --bin make --locked --root "$HOME/makers" --force
 
-      - name: Build the plugin component
-        run: cargo component build
+      - name: Build the plugin components
+        run: |
+          cargo component build
+          cargo component build --features kbuild --target-dir target-kbuild
 
       - name: Test
         run: MAKERS_MAKE="$HOME/makers/bin/make" cargo test

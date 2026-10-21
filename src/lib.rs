@@ -57,39 +57,33 @@
 //! either, which is the remaining way to reach an environment value without
 //! naming it. See `docs/plugin-api.md` §9 in sevki/makers.
 
-//! # `mode=wrap`: recursive makes such as Kbuild
+//! # `mode=kbuild`: recursive makes such as the Linux kernel
 //!
 //! Per-target genrules describe a build whose whole graph is in one `make`
-//! process. Kbuild is not that: the top-level makefile's recipes are
-//! `$(MAKE) -f scripts/Makefile.build obj=drivers`, each directory is its own
-//! `make` with its own graph, the compile command only exists after
-//! `$(call if_changed_rule,cc_o_c)` has been expanded against `$@`, and the
-//! `built-in.a` archives are thin — they name `.o` files that Bazel would
-//! have discarded. Translating the top-level graph produces genrules that run
-//! `$$(call ...)` as a shell command, and none of them can succeed.
+//! process. Kbuild is not that: each directory is its own `make`, and the
+//! command for `kernel/fork.o` only exists after `$(call if_changed_rule,
+//! cc_o_c)` has been expanded against that target. Built with `--features
+//! kbuild`, the plugin asks the host to expand each target's recipe
+//! (`node.expand`), runs in every make Kbuild starts, and writes one Bazel
+//! action per target. See [`kbuild`] for how the pieces fit.
 //!
-//! `mode=wrap` is the honest alternative, and the one Android's Kleaf takes
-//! for the same reason: leave Kbuild's graph to Kbuild and give Bazel one
-//! hermetic action around it. The plugin emits a `MODULE.bazel` and a root
-//! `BUILD.bazel` whose `kernel` genrule copies the tree, runs the configured
-//! `make` over it, and returns the declared outputs. Settings
-//! (`--plugin-arg bazel:<key>=<value>`):
+//! That build cannot declare `deterministic`: expanding a recipe can run
+//! `$(shell ...)`, which the input digest does not cover. So it is a second
+//! component, and the default build keeps the property.
 //!
-//! | key         | meaning                                                    |
-//! |-------------|------------------------------------------------------------|
-//! | `mode`      | `wrap` to enable; anything else is the per-target mode     |
-//! | `outs`      | comma-separated files the build produces and Bazel returns |
-//! | `goals`     | space-separated make goals (default: the command line's)   |
-//! | `configure` | make goals run first, e.g. `defconfig`                     |
-//! | `make`      | the make binary (default `make`)                           |
-//! | `make-args` | extra make arguments, e.g. `ARCH=x86_64 LLVM=1`            |
-//! | `jobs`      | `-j` value (default: all cores)                            |
-//! | `exclude`   | comma-separated extra globs left out of the action inputs  |
-//! | `name`      | rule name (default `kernel`)                               |
+//! Settings (`--plugin-arg bazel:<key>=<value>`):
 //!
-//! The graph walk is skipped: run it against a goal that does not recurse
-//! (`make -n help` for the kernel) so loading the plugin costs one makefile
-//! read instead of one per directory.
+//! | key    | meaning                                                          |
+//! |--------|------------------------------------------------------------------|
+//! | `mode` | `kbuild` to enable; anything else is the per-target mode         |
+//! | `outs` | comma-separated files the top-level goals produce (`//:kernel`)  |
+//! | `name` | name of the target that gathers `outs` (default `kernel`)        |
+//!
+//! The host grants `expand-variables` only on request:
+//! `MAKERS_PLUGIN_ALLOW=bazel:expand-variables`.
+
+#[cfg(feature = "kbuild")]
+mod kbuild;
 
 use makers_plugin::prelude::*;
 use std::cell::RefCell;
@@ -293,152 +287,33 @@ fn emittable(name: &str) -> bool {
     !name.is_empty() && !name.contains('%')
 }
 
-fn setting(key: &str) -> Option<String> {
+pub(crate) fn setting(key: &str) -> Option<String> {
     makers_plugin::session::setting(key).filter(|v| !v.trim().is_empty())
-}
-
-fn wrap_mode() -> bool {
-    setting("mode").as_deref() == Some("wrap")
-}
-
-fn csv(value: &str) -> Vec<String> {
-    value
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .collect()
-}
-
-/// Quote one word for `sh`. Settings come from the command line of whoever
-/// runs `make`, and end up in a script, so they are quoted rather than
-/// trusted to be a single word.
-fn sh_quote(word: &str) -> String {
-    format!("'{}'", word.replace('\'', "'\\''"))
-}
-
-/// A Starlark `"""` string body for a genrule `cmd`: backslashes and quotes
-/// escaped, newlines kept, every `$` doubled so Bazel hands it to the shell
-/// untouched — except the `@RULEDIR@` placeholder, which becomes Bazel's own
-/// `$(RULEDIR)`.
-fn starlark_block(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('$', "$$")
-        .replace("@RULEDIR@", "$(RULEDIR)")
-}
-
-/// `MODULE.bazel` and the root `BUILD.bazel` for [`wrap_mode`].
-fn write_wrap() -> Result<(), Error> {
-    let outs = csv(&setting("outs").ok_or_else(|| {
-        makers_plugin::fail("mode=wrap needs `outs`: the files the build produces")
-    })?);
-    if outs.is_empty() {
-        return Err(makers_plugin::fail("mode=wrap: `outs` is empty"));
-    }
-    for out in &outs {
-        if out.starts_with('/') || out.split('/').any(|c| c == "..") {
-            return Err(makers_plugin::fail(format!(
-                "mode=wrap: output `{out}` must be a relative path inside the tree"
-            )));
-        }
-    }
-    let name = setting("name").unwrap_or_else(|| "kernel".to_string());
-    let make = sh_quote(&setting("make").unwrap_or_else(|| "make".to_string()));
-    let make_args = setting("make-args").unwrap_or_default();
-    let goals: Vec<String> = setting("goals")
-        .map(|g| g.split_whitespace().map(str::to_string).collect())
-        .unwrap_or_else(makers_plugin::session::goal_names);
-    let jobs = setting("jobs").unwrap_or_else(|| "$(nproc)".to_string());
-
-    let mut script = String::from("set -eu\n");
-    script.push_str("work=\"$(mktemp -d)\"\ntrap 'rm -rf \"$work\"' EXIT\n");
-    // The action's inputs are symlinks into the source tree, and Kbuild
-    // writes beside its sources. Copy through them so the build happens in a
-    // tree it owns.
-    script.push_str(
-        "tar -ch --exclude=./bazel-out --exclude=./external -f - . | tar -x -C \"$work\"\n",
-    );
-    script.push_str("out=\"$PWD/@RULEDIR@\"\n");
-    script.push_str(&format!(
-        "mk() {{ {make} -C \"$work\" -j{jobs} {make_args} \"$@\"; }}\n"
-    ));
-    if let Some(configure) = setting("configure") {
-        script.push_str(&format!("mk {configure}\n"));
-    }
-    let goals: Vec<String> = goals.iter().map(|g| sh_quote(g)).collect();
-    script.push_str(&format!("mk {}\n", goals.join(" ")));
-    for out in &outs {
-        let q = sh_quote(out);
-        script.push_str(&format!(
-            "mkdir -p \"$(dirname \"$out\"/{q})\"\ncp \"$work\"/{q} \"$out\"/{q}\n"
-        ));
-    }
-
-    let mut exclude = vec![
-        ".git/**".to_string(),
-        "bazel-*/**".to_string(),
-        "Documentation/**".to_string(),
-        "BUILD.bazel".to_string(),
-        "MODULE.bazel".to_string(),
-        "MODULE.bazel.lock".to_string(),
-    ];
-    exclude.extend(setting("exclude").map(|e| csv(&e)).unwrap_or_default());
-
-    let mut build = String::from(
-        "# Generated by the `bazel-export` makers plugin (mode=wrap). The graph of a\n\
-         # recursive make is not one graph, so this is one action around the whole\n\
-         # build rather than a rule per target; edit the makefile, not this file.\n\n",
-    );
-    build.push_str("genrule(\n");
-    build.push_str(&format!("    name = \"{}\",\n", bazel_escape(&name)));
-    build.push_str("    srcs = glob(\n        [\"**\"],\n        exclude = [\n");
-    for e in &exclude {
-        build.push_str(&format!("            \"{}\",\n", bazel_escape(e)));
-    }
-    build.push_str("        ],\n    ),\n");
-    build.push_str("    outs = [\n");
-    for out in &outs {
-        build.push_str(&format!("        \"{}\",\n", bazel_escape(out)));
-    }
-    build.push_str("    ],\n");
-    // `local`: the build runs its own parallel make and writes only to a
-    // temporary directory, so a sandbox adds a second copy of the tree and
-    // nothing else.
-    build.push_str("    tags = [\"local\"],\n");
-    build.push_str(&format!(
-        "    cmd = \"\"\"\n{}\"\"\",\n)\n",
-        starlark_block(&script)
-    ));
-
-    let mut module = makers_plugin::open_output_in("build-files", "MODULE.bazel")?;
-    module
-        .write_all(format!("module(name = \"{}\")\n", sanitize_rule_name(&name)).as_bytes())
-        .map_err(|e| makers_plugin::fail(e.to_string()))?;
-    module.finish()?;
-    let mut file = makers_plugin::open_output_in("build-files", "BUILD.bazel")?;
-    file.write_all(build.as_bytes())
-        .map_err(|e| makers_plugin::fail(e.to_string()))?;
-    file.finish()?;
-    makers_plugin::note("wrote MODULE.bazel and BUILD.bazel (mode=wrap)");
-    Ok(())
 }
 
 impl Analyzer for BazelExport {
     fn describe() -> PluginInfo {
-        Manifest::new("bazel-export", env!("CARGO_PKG_VERSION"))
-            .description("BUILD.bazel genrules from the resolved make graph")
+        let manifest = Manifest::new("bazel-export", env!("CARGO_PKG_VERSION"))
+            .description("BUILD.bazel files from the resolved make graph")
             .capability(Capability::ReadRecipes)
             // For `$(CC)` and friends. Not `expand-variables`: the recipe
             // must keep its shape, and the full expander would also run
             // `$(shell ...)`.
             .capability(Capability::ReadVariables)
-            .capability(Capability::WriteOutputs)
-            // `deterministic`: everything this plugin reads is covered by
-            // `session.input-digest`. Not `read-environment` — and that is
-            // what makes the promise true, since environment-origin values
-            // are the ones the digest excludes. See the module docs.
-            .deterministic()
+            .capability(Capability::WriteOutputs);
+        // `deterministic`: everything this plugin reads is covered by
+        // `session.input-digest`. Not `read-environment` — and that is what
+        // makes the promise true, since environment-origin values are the
+        // ones the digest excludes. See the module docs. The kbuild build
+        // asks for `expand-variables` and so cannot make the promise.
+        #[cfg(feature = "kbuild")]
+        let manifest = manifest
+            .capability(Capability::ExpandVariables)
+            // To tell a file that is on disk from one make would remake.
+            .capability(Capability::ReadFileContent);
+        #[cfg(not(feature = "kbuild"))]
+        let manifest = manifest.deterministic();
+        manifest
             .output_directory(
                 "build-files",
                 ".",
@@ -452,8 +327,9 @@ impl Analyzer for BazelExport {
         // not a file Bazel can produce, and emitting one yields a rule whose
         // `outs` never appears — which fails the build rather than
         // describing it.
-        if wrap_mode() {
-            return Ok(Vec::new());
+        #[cfg(feature = "kbuild")]
+        if kbuild::enabled() {
+            return kbuild::analyze(target).map(|()| Vec::new());
         }
         if target.phony() {
             return Ok(Vec::new());
@@ -523,8 +399,9 @@ impl Analyzer for BazelExport {
     }
 
     fn finish() -> Result<(), Error> {
-        if wrap_mode() {
-            return write_wrap();
+        #[cfg(feature = "kbuild")]
+        if kbuild::enabled() {
+            return kbuild::finish();
         }
         let candidates = CANDIDATES.with(|c| std::mem::take(&mut *c.borrow_mut()));
         if candidates.is_empty() {
