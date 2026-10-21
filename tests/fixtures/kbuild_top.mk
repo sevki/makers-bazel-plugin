@@ -13,7 +13,7 @@ endef
 export KBUILD_FLAG := set
 
 .PHONY: all sub
-all: sub app gen.h img-out.gen grp.c1 grp.h1
+all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o
 
 # A header the compile includes but does not list as a prerequisite, as in
 # Kbuild, where building it first is a matter of ordering.
@@ -55,3 +55,11 @@ preout.x:
 
 grp.src:
 	echo src > $@
+
+# A compile of a source another action generates: what it includes cannot be
+# read until it exists.
+gen2.o: gen2.c
+	cc -c -I. -o $@ $<
+
+gen2.c:
+	echo > $@

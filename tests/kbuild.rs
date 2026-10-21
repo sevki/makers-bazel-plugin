@@ -226,3 +226,21 @@ fn targets_one_recipe_makes_each_get_an_action_and_are_not_inputs_of_each_other(
     assert!(!c.contains("grp.h1"), "the header is not an input of the source:\n{c}");
     assert!(!h.contains("grp.c1"), "the source is not an input of the header:\n{h}");
 }
+
+/// A compile of a generated source cannot be scanned for includes, so it
+/// depends on the tree's headers instead; a compile of a real source does not.
+#[test]
+fn a_compile_of_a_generated_source_depends_on_the_tree_s_headers() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let top = fragment(&run, "Makefile_");
+    let rule = |out: &str| -> String {
+        let at = top
+            .find(&format!("out = \"{out}\""))
+            .unwrap_or_else(|| panic!("no rule for {out}:\n{top}"));
+        let rest = &top[at..];
+        rest[..rest.find("specs.append").unwrap_or(rest.len())].to_string()
+    };
+    assert!(rule("gen2.o").contains("infra = True"), "{}", rule("gen2.o"));
+    assert!(!rule("main.o").contains("infra = True"), "{}", rule("main.o"));
+}
