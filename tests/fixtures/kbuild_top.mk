@@ -13,7 +13,12 @@ endef
 export KBUILD_FLAG := set
 
 .PHONY: all sub
-all: sub app
+all: sub app gen.h
+
+# A header the compile includes but does not list as a prerequisite, as in
+# Kbuild, where building it first is a matter of ordering.
+gen.h:
+	echo '#define GEN 1' > $@
 
 app: main.o sub/lib.a
 	cc -o $@ main.o sub/lib.a

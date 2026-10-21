@@ -16,6 +16,7 @@ use std::fs;
 fn kbuild_run(grants: &str) -> Run {
     let plugin = kbuild_component();
     let dir = workdir("kbuild_top.mk", &["main.c", "shared.h", "sub/a.c"]);
+    fs::write(dir.join("main.c"), "#include \"gen.h\"\n").expect("write main.c");
     fs::copy(
         harness::manifest_dir().join("tests/fixtures/kbuild_sub.mk"),
         dir.join("sub.mk"),
@@ -60,7 +61,7 @@ fn a_rule_carries_the_expanded_command_without_fixdep() {
     let run = kbuild_run(GRANTS);
     assert_clean(&run);
     let root = run.artifact("kbuild/rules.bzl");
-    assert!(root.contains("kbuild_action"), "{root}");
+    assert!(root.contains("kbuild_declare"), "{root}");
 
     let sub = fragment(&run, "sub_");
     assert!(
@@ -146,4 +147,25 @@ fn a_line_that_runs_a_command_then_a_make_is_kept_whole() {
         top.contains("cc -o linked main.o; ") && top.contains("sub.mk obj=post"),
         "the command and the make both run in it:\n{top}"
     );
+}
+
+/// A header the compile includes, that is not on disk yet, may be generated
+/// by a target elsewhere. The scan cannot know, so the action lists it as a
+/// candidate and Bazel, which has every target, decides.
+#[test]
+fn an_include_that_is_not_there_yet_is_a_candidate_source() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let top = fragment(&run, "Makefile_");
+    assert!(
+        top.contains("maybe = [") && top.contains("\"gen.h\""),
+        "the generated header is a candidate of the compile that includes it:\n{top}"
+    );
+    assert!(top.contains("out = \"gen.h\""), "and it has its own rule:\n{top}");
+    assert!(
+        top.contains("def kbuild_") && top.contains("return specs"),
+        "a fragment returns its targets for `kbuild_declare`:\n{top}"
+    );
+    let rules = run.artifact("kbuild/rules.bzl");
+    assert!(rules.contains("def kbuild_declare"), "{rules}");
 }

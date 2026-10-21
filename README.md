@@ -24,7 +24,7 @@ the makers host to expand each target's recipe in that target's scope
 (`node.expand`, from [sevki/makers#687](https://github.com/sevki/makers/pull/687)),
 runs in every make Kbuild starts, and writes the Bazel files itself:
 
-- each directory's make writes `kbuild/<key>.bzl`, a macro with one `kbuild_action`
+- each directory's make writes `kbuild/<key>.bzl`, a macro returning one `kbuild_spec`
   per target it would build, and a call to the macro of each make it starts;
 - the top-level make writes `BUILD.bazel`, `MODULE.bazel` and `kbuild/rules.bzl`;
 - each action runs Kbuild's own command (cut before the `fixdep` step that

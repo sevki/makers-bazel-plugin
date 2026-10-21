@@ -12,7 +12,7 @@
 //! * a target whose recipe recurses is an edge, not a rule. Its expanded
 //!   command line names the child make, and the run records the child's
 //!   fragment so the parent can load it;
-//! * any other target with a command to run becomes one [`kbuild_action`],
+//! * any other target with a command to run becomes one [`kbuild_spec`],
 //!   carrying the command make would run, as `node.expand` gives it. A
 //!   target that already exists, or whose recipe expands to nothing, is a
 //!   file the build starts from;
@@ -50,6 +50,13 @@ struct Rule {
     thin: bool,
     env: bool,
     infra: bool,
+    /// Includes the scan could not find on disk: they may be files another
+    /// make generates, which only Bazel, once it has every rule, can tell.
+    /// `maybe` are exact paths (a quoted include beside its includer);
+    /// `maybe_names` are names to look for in each of `maybe_dirs`.
+    maybe: Vec<String>,
+    maybe_names: Vec<String>,
+    maybe_dirs: Vec<String>,
 }
 
 #[derive(Default)]
@@ -509,7 +516,25 @@ fn parse_includes(text: &str) -> Vec<(bool, String)> {
 #[derive(Default)]
 struct Scanner {
     includes: std::collections::HashMap<String, Vec<(bool, String)>>,
-    resolved: std::collections::HashMap<(String, String), std::rc::Rc<Vec<String>>>,
+    resolved: std::collections::HashMap<(String, String), std::rc::Rc<Resolved>>,
+}
+
+/// What one file's includes resolved to.
+#[derive(Default)]
+struct Resolved {
+    found: Vec<String>,
+    /// Quoted includes that are not on disk, as the path beside the includer.
+    missing_beside: Vec<String>,
+    /// Names that are not on disk in any search directory.
+    missing_names: Vec<String>,
+}
+
+/// Everything reachable from some files by `#include`.
+#[derive(Default)]
+struct Reach {
+    files: BTreeSet<String>,
+    missing_beside: BTreeSet<String>,
+    missing_names: BTreeSet<String>,
 }
 
 impl Scanner {
@@ -524,44 +549,53 @@ impl Scanner {
 
     /// The files `file` includes that exist, searching `dirs` after the
     /// file's own directory for the quoted form.
-    fn resolve_all(&mut self, file: &str, dirs: &[String], dirs_key: &str) -> std::rc::Rc<Vec<String>> {
+    fn resolve_all(&mut self, file: &str, dirs: &[String], dirs_key: &str) -> std::rc::Rc<Resolved> {
         let key = (dirs_key.to_string(), file.to_string());
         if let Some(hit) = self.resolved.get(&key) {
             return hit.clone();
         }
         let here = file.rsplit_once('/').map_or("", |(d, _)| d).to_string();
         let wanted = self.includes_of(file).clone();
-        let mut found = Vec::new();
+        let mut out = Resolved::default();
         for (quoted, name) in wanted {
             let beside = quoted.then(|| from_root(&here, &name)).flatten();
             let hit = beside
+                .clone()
                 .into_iter()
                 .chain(dirs.iter().filter_map(|d| from_root(d, &name)))
                 .find(|candidate| on_disk(candidate));
-            if let Some(hit) = hit {
-                found.push(hit);
+            match hit {
+                Some(hit) => out.found.push(hit),
+                None => {
+                    out.missing_beside.extend(beside);
+                    if !name.starts_with('/') && !name.split('/').any(|p| p == ".." || p == ".") {
+                        out.missing_names.push(name);
+                    }
+                }
             }
         }
-        let found = std::rc::Rc::new(found);
-        self.resolved.insert(key, found.clone());
-        found
+        let out = std::rc::Rc::new(out);
+        self.resolved.insert(key, out.clone());
+        out
     }
 
     /// Every file reachable by `#include` from `start`, found in `dirs`.
     /// Paths are relative to the tree root; this only works in a make that
     /// runs there.
-    fn reachable(&mut self, start: &[String], dirs: &[String]) -> BTreeSet<String> {
+    fn reachable(&mut self, start: &[String], dirs: &[String]) -> Reach {
         let dirs_key = dirs.join("\n");
-        let mut seen: BTreeSet<String> = BTreeSet::new();
+        let mut reach = Reach::default();
         let mut queue: Vec<String> = start.to_vec();
         while let Some(file) = queue.pop() {
-            if !seen.insert(file.clone()) {
+            if !reach.files.insert(file.clone()) {
                 continue;
             }
             let next = self.resolve_all(&file, dirs, &dirs_key);
-            queue.extend(next.iter().filter(|f| !seen.contains(*f)).cloned());
+            queue.extend(next.found.iter().filter(|f| !reach.files.contains(*f)).cloned());
+            reach.missing_beside.extend(next.missing_beside.iter().cloned());
+            reach.missing_names.extend(next.missing_names.iter().cloned());
         }
-        seen
+        reach
     }
 }
 
@@ -744,16 +778,26 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
     // What the compile reads beyond the prerequisites make lists. Only
     // possible in a make that runs at the tree root, where paths in the
     // command mean the same as paths on disk.
+    let mut maybe: Vec<String> = Vec::new();
+    let mut maybe_names: Vec<String> = Vec::new();
+    let mut maybe_dirs: Vec<String> = Vec::new();
     if rel.is_empty() && (reads_headers(&cmds) || srcs.iter().any(|s| is_c_like(s))) {
         let dirs: Vec<String> = include_dirs(&cmds).into_iter().collect();
         let mut start: Vec<String> = forced_includes(&cmds);
         start.extend(srcs.iter().filter(|s| on_disk(s)).cloned());
-        let found = RUN.with(|r| r.borrow_mut().scanner.reachable(&start, &dirs));
-        for file in found {
+        let reach = RUN.with(|r| r.borrow_mut().scanner.reachable(&start, &dirs));
+        for file in reach.files {
             if file != name && !srcs.contains(&file) {
                 srcs.push(file);
             }
         }
+        maybe = reach
+            .missing_beside
+            .into_iter()
+            .filter(|f| *f != name && !srcs.contains(f))
+            .collect();
+        maybe_names = reach.missing_names.into_iter().collect();
+        maybe_dirs = dirs;
     }
     // Commands are relative to the make's own directory. The action starts
     // at the tree root, so a make that ran elsewhere goes there for them.
@@ -788,6 +832,9 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
             thin,
             env: infra,
             infra,
+            maybe,
+            maybe_names,
+            maybe_dirs,
         });
     });
     Ok(())
@@ -817,7 +864,7 @@ pub fn finish() -> Result<(), Error> {
     let mut doc = String::from(
         "# Generated by the `bazel-export` makers plugin (mode=kbuild).\n\
          # Edit the makefiles, not this file.\n\n\
-         load(\"//:kbuild/rules.bzl\", \"kbuild_action\")\n",
+         load(\"//:kbuild/rules.bzl\", \"kbuild_spec\")\n",
     );
     for child in &run.children {
         doc.push_str(&format!(
@@ -831,11 +878,25 @@ pub fn finish() -> Result<(), Error> {
         }
         doc.push_str("}\n");
     }
-    doc.push_str(&format!("\ndef {func}():\n"));
-    let mut body = false;
+    // Search directories repeat from action to action; name each set once.
+    let mut dir_sets: Vec<&Vec<String>> = Vec::new();
     for rule in &run.rules {
-        body = true;
-        doc.push_str("    kbuild_action(\n");
+        if !rule.maybe_names.is_empty() && !dir_sets.contains(&&rule.maybe_dirs) {
+            dir_sets.push(&rule.maybe_dirs);
+        }
+    }
+    for (i, dirs) in dir_sets.iter().enumerate() {
+        doc.push_str(&format!("\nDIRS_{i} = [\n"));
+        for d in dirs.iter() {
+            doc.push_str(&format!("    {},\n", q(d)));
+        }
+        doc.push_str("]\n");
+    }
+    // A fragment returns its targets and its children's instead of declaring
+    // them, so `kbuild_declare` sees all of them at once.
+    doc.push_str(&format!("\ndef {func}():\n    specs = []\n"));
+    for rule in &run.rules {
+        doc.push_str("    specs.append(kbuild_spec(\n");
         doc.push_str(&format!("        name = {},\n", q(&ident(&rule.out))));
         doc.push_str(&format!("        out = {},\n", q(&rule.out)));
         doc.push_str("        srcs = [\n");
@@ -847,6 +908,22 @@ pub fn finish() -> Result<(), Error> {
             doc.push_str(&format!("            {},\n", q(c)));
         }
         doc.push_str("        ],\n");
+        if !rule.maybe.is_empty() {
+            doc.push_str("        maybe = [\n");
+            for m in &rule.maybe {
+                doc.push_str(&format!("            {},\n", q(m)));
+            }
+            doc.push_str("        ],\n");
+        }
+        if !rule.maybe_names.is_empty() {
+            doc.push_str("        maybe_names = [\n");
+            for n in &rule.maybe_names {
+                doc.push_str(&format!("            {},\n", q(n)));
+            }
+            doc.push_str("        ],\n");
+            let i = dir_sets.iter().position(|d| **d == rule.maybe_dirs).unwrap_or(0);
+            doc.push_str(&format!("        maybe_dirs = DIRS_{i},\n"));
+        }
         if rule.env && run.env.is_some() {
             doc.push_str("        env = KBUILD_ENV,\n");
         }
@@ -856,15 +933,12 @@ pub fn finish() -> Result<(), Error> {
         if rule.infra {
             doc.push_str("        infra = True,\n");
         }
-        doc.push_str("    )\n");
+        doc.push_str("    ))\n");
     }
     for child in &run.children {
-        body = true;
-        doc.push_str(&format!("    kbuild_{child}()\n"));
+        doc.push_str(&format!("    specs += kbuild_{child}()\n"));
     }
-    if !body {
-        doc.push_str("    pass\n");
-    }
+    doc.push_str("    return specs\n");
     write("build-files", &format!("kbuild/{key}.bzl"), &doc)?;
     write("build-files", "kbuild/rules.bzl", RULES_BZL)?;
 
@@ -880,9 +954,10 @@ pub fn finish() -> Result<(), Error> {
         let name = super::setting("name").unwrap_or_else(|| "kernel".to_string());
         let build = format!(
             "# Generated by the `bazel-export` makers plugin (mode=kbuild).\n\
+             load(\"//:kbuild/rules.bzl\", \"kbuild_declare\")\n\
              load(\"//:kbuild/{key}.bzl\", \"kbuild_{key}\")\n\n\
              package(default_visibility = [\"//visibility:public\"])\n\n\
-             kbuild_{key}()\n\n\
+             kbuild_declare(kbuild_{key}())\n\n\
              filegroup(\n    name = {},\n    srcs = [{}],\n)\n",
             q(&name),
             outs.iter().map(|o| q(o)).collect::<Vec<_>>().join(", ")
