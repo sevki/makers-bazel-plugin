@@ -66,7 +66,7 @@ cargo component build        # per-target mode; target/wasm32-wasip1/debug/maker
 cargo component build --features kbuild --target-dir target-kbuild   # kbuild mode
 
 # tests run the real makers `make`, built with the plugin host:
-cargo install --git https://github.com/sevki/makers --branch plugin-node-expand make-sys --features wasmtime --bin make --locked
+cargo install --git https://github.com/sevki/makers make-sys --features wasmtime --bin make --locked
 MAKERS_MAKE=$(which make) cargo test   # or the path to that binary
 ```
 

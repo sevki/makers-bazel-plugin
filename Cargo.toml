@@ -7,8 +7,7 @@ license = "GPL-3.0-or-later"
 repository = "https://github.com/sevki/makers-bazel-plugin"
 
 [dependencies]
-# TODO: back to the default branch once sevki/makers#687 (node.expand) has merged.
-makers-plugin = { git = "https://github.com/sevki/makers", branch = "plugin-node-expand" }
+makers-plugin = { git = "https://github.com/sevki/makers" }
 
 [features]
 # The component that can build the Linux kernel. Separate because expanding

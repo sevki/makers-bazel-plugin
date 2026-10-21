@@ -98,7 +98,7 @@ dependencies = [
 [[package]]
 name = "makers-plugin"
 version = "0.1.0"
-source = "git+https://github.com/sevki/makers?branch=plugin-node-expand#4fb68aee3ae576eceab8b16e26863db44253cabc"
+source = "git+https://github.com/sevki/makers#0d40edeee194bae087377d90c8f61191b9dcff38"
 dependencies = [
  "wit-bindgen",
 ]
