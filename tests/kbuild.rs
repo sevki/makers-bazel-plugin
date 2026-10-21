@@ -15,7 +15,7 @@ use std::fs;
 /// Build the fixture's tree and run the plugin over it.
 fn kbuild_run(grants: &str) -> Run {
     let plugin = kbuild_component();
-    let dir = workdir("kbuild_top.mk", &["main.c", "shared.h", "sub/a.c", "plain.c", "miss.c", "zdir/ord.h", "adir/ord.h"]);
+    let dir = workdir("kbuild_top.mk", &["main.c", "shared.h", "sub/a.c", "plain.c", "miss.c", "zdir/ord.h", "adir/ord.h", "run.sh", "list.txt"]);
     fs::write(dir.join("main.c"), "#include \"gen.h\"\n").expect("write main.c");
     fs::write(dir.join("miss.c"), "#include \"nothere.h\"\n").expect("write miss.c");
     fs::write(dir.join("ord.c"), "#include <ord.h>\n").expect("write ord.c");
@@ -293,4 +293,18 @@ fn the_outputs_of_one_recipe_are_recorded_as_a_group() {
         rule.contains("group = [") && rule.contains("\"grp.h1\"") && rule.contains("\"grp.c1\""),
         "{rule}"
     );
+}
+
+/// A file a script is handed by name, and that is on disk, is an input even
+/// though make does not list it (Kbuild's `usr/gen_initramfs.sh` and
+/// `usr/default_cpio_list`).
+#[test]
+fn a_file_a_script_is_handed_by_name_is_an_input() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let top = fragment(&run, "Makefile_");
+    let at = top.find("out = \"listed.out\"").unwrap_or_else(|| panic!("no rule:\n{top}"));
+    let rest = &top[at..];
+    let rule = &rest[..rest.find("cmds = [").expect("rule has commands")];
+    assert!(rule.contains("\"list.txt\"") && rule.contains("\"run.sh\""), "{rule}");
 }

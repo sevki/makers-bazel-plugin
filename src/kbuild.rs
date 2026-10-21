@@ -814,6 +814,28 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
     let infra = cmds.iter().any(|c| {
         c.contains(".sh") || c.split_whitespace().any(|w| w == "make" || w.ends_with("/make"))
     });
+    // A script is handed files by name that make does not list (`usr/gen_
+    // initramfs.sh` is given `usr/default_cpio_list`, a source file). Those
+    // that are on disk are inputs. Only in a make at the tree root, where a
+    // path in the command is a path on disk.
+    if infra && rel.is_empty() {
+        for c in &cmds {
+            for w in shell_words(c) {
+                if w.starts_with('-') || w.len() > 200 || w.contains('$') {
+                    continue;
+                }
+                let Some(path) = from_root("", &w) else {
+                    continue;
+                };
+                if path != name
+                    && !srcs.contains(&path)
+                    && std::fs::metadata(&path).is_ok_and(|m| m.is_file())
+                {
+                    srcs.push(path);
+                }
+            }
+        }
+    }
     // What the compile reads beyond the prerequisites make lists. Only
     // possible in a make that runs at the tree root, where paths in the
     // command mean the same as paths on disk.
