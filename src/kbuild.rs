@@ -758,7 +758,15 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
         if edge.flags.contains(DepFlags::ORDER_ONLY) || edge.target.phony() {
             continue;
         }
-        let Some(dep) = from_root(&rel, &edge.name) else {
+        // The name as written is empty for a prerequisite an implicit rule
+        // supplied (`$(obj)/vdso-image-%.c: $(obj)/vdso%.so.dbg ...`); the
+        // node it points at is the file.
+        let written = if edge.name.is_empty() {
+            edge.target.name()
+        } else {
+            edge.name.clone()
+        };
+        let Some(dep) = from_root(&rel, &written) else {
             continue;
         };
         if srcs.contains(&dep) {

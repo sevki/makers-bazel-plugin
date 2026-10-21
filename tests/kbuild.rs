@@ -169,3 +169,22 @@ fn an_include_that_is_not_there_yet_is_a_candidate_source() {
     let rules = run.artifact("kbuild/rules.bzl");
     assert!(rules.contains("def kbuild_declare"), "{rules}");
 }
+
+/// An implicit rule's prerequisites are inputs too: `img-out.gen` is built
+/// from `preout.x` by `img-%.gen: pre%.x`. (In the kernel's vdso Makefile the
+/// host reports such an edge with an empty as-written name, and the plugin
+/// takes the file from the edge's target; this fixture's edges are named.)
+#[test]
+fn a_prerequisite_from_an_implicit_rule_is_an_input() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let top = fragment(&run, "Makefile_");
+    let at = top.find("out = \"img-out.gen\"").unwrap_or_else(|| panic!("no rule for img-out.gen:\n{top}"));
+    let rule = &top[at..];
+    let end = rule.find("cmds = [").expect("rule has commands");
+    assert!(
+        rule[..end].contains("\"preout.x\""),
+        "`preout.x` is an input of `img-out.gen`:\n{}",
+        &rule[..end]
+    );
+}

@@ -13,7 +13,7 @@ endef
 export KBUILD_FLAG := set
 
 .PHONY: all sub
-all: sub app gen.h
+all: sub app gen.h img-out.gen
 
 # A header the compile includes but does not list as a prerequisite, as in
 # Kbuild, where building it first is a matter of ordering.
@@ -39,3 +39,12 @@ linked: main.o
 # A directory's own make, as Kbuild starts it.
 sub:
 	+$(MAKE) -f sub.mk obj=sub
+
+# A prerequisite an implicit rule supplies has no name as written in the
+# makefile. As in the vdso Makefile, the stem sits inside a word of the
+# prerequisite (`vdso%.so.dbg`), which another rule generates.
+img-%.gen: pre%.x
+	cp $< $@
+
+preout.x:
+	echo pre > $@
