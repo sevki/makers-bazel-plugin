@@ -57,7 +57,7 @@ rustup target add wasm32-wasip1
 cargo component build        # target/wasm32-wasip1/debug/makers_bazel_plugin.wasm
 
 # tests run the real makers `make`, built with the plugin host:
-cargo install --git https://github.com/sevki/makers --features wasmtime --bin make --locked
+cargo install --git https://github.com/sevki/makers make-sys --features wasmtime --bin make --locked
 MAKERS_MAKE=$(which make) cargo test   # or the path to that binary
 ```
 
