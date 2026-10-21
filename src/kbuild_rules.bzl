@@ -182,6 +182,9 @@ def kbuild_declare(specs):
         seen[s.name] = True
         srcs = list(s.srcs)
         have = {x: True for x in srcs}
+        # What the same command makes is not something it reads.
+        for g in groups.get(s.out, []):
+            have[g] = True
         for m in s.maybe:
             if m in outs and m != s.out and m not in have:
                 srcs.append(m)
