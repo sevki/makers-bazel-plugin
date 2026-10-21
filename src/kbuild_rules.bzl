@@ -47,6 +47,10 @@ def _kbuild_action_impl(ctx):
     for k, v in sorted(ctx.attr.env.items()):
         lines.append("export %s=%s" % (k, '"$PWD"' if v == "$PWD" else _quote(v)))
     lines += ctx.attr.cmds
+    if ctx.attr.lenient:
+        # A file the command was only guessed to make: if it did not, say so
+        # and go on rather than fail a build that does not need it.
+        lines.append("[ -e %s ] || { echo 'kbuild: %s was not made by its command' >&2; : > %s; }" % (_quote(ctx.attr.out), ctx.attr.out, _quote(ctx.attr.out)))
     lines.append("cp " + _quote(ctx.attr.out) + " " + _quote(out.path))
     ctx.actions.write(script, "\n".join(lines) + "\n")
 
@@ -74,6 +78,7 @@ _kbuild_action = rule(
         "env": attr.string_dict(),
         "thin": attr.bool(default = False),
         "dirs": attr.string_list(),
+        "lenient": attr.bool(default = False),
     },
 )
 
@@ -123,6 +128,7 @@ def kbuild_spec(name, out, srcs = [], cmds = [], env = {}, thin = False, infra =
         maybe_dirs = maybe_dirs,
         group = group,
         side = side,
+        lenient = False,
     )
 
 def kbuild_declare(specs):
@@ -164,6 +170,7 @@ def kbuild_declare(specs):
                     maybe_dirs = s.maybe_dirs,
                     group = group,
                     side = [],
+                    lenient = True,
                 ))
     specs = specs + extra
     outs = {s.out: True for s in specs}
@@ -201,6 +208,7 @@ def kbuild_declare(specs):
             env = s.env,
             thin = s.thin,
             dirs = s.maybe_dirs,
+            lenient = s.lenient,
         )
     if infra:
         native.filegroup(

@@ -325,3 +325,19 @@ fn a_file_a_command_names_beside_its_target_is_a_candidate_output() {
     let rules = run.artifact("kbuild/rules.bzl");
     assert!(rules.contains("if c not in outs"), "{rules}");
 }
+
+/// A hidden file beside the target (`filechk`'s temporary) is not a candidate
+/// output, and a candidate that is declared is not allowed to fail the build
+/// if its command did not make it.
+#[test]
+fn a_hidden_temporary_is_not_a_side_output_and_a_guessed_one_may_be_missing() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let top = fragment(&run, "Makefile_");
+    let at = top.find("out = \"hid.h\"").unwrap_or_else(|| panic!("no rule:\n{top}"));
+    let rest = &top[at..];
+    let rule = &rest[..rest.find("specs.append").unwrap_or(rest.len())];
+    assert!(!rule.contains("side = ["), "{rule}");
+    let rules = run.artifact("kbuild/rules.bzl");
+    assert!(rules.contains("lenient"), "{rules}");
+}

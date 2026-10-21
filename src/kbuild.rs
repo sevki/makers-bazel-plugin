@@ -816,7 +816,10 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
                     continue;
                 };
                 let beside = path.rsplit_once('/').map_or("", |(d, _)| d) == dir;
+                // `filechk` writes `.tmp_x.h` and moves it into place.
+                let hidden = path.rsplit('/').next().is_some_and(|b| b.starts_with('.'));
                 if beside
+                    && !hidden
                     && path != name
                     && !siblings.contains(&path)
                     && !side.contains(&path)
