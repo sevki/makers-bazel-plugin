@@ -188,3 +188,20 @@ fn a_prerequisite_from_an_implicit_rule_is_an_input() {
         &rule[..end]
     );
 }
+
+/// A make that a command starts rather than a recipe's recursive line (the
+/// fixture's `linked` runs `$(MAKE) -f sub.mk obj=post`, as Kbuild's link runs
+/// a make for `init/version-timestamp.o`) is named by no parent. The root
+/// loads it all the same, or its rules would never be declared.
+#[test]
+fn a_make_a_command_starts_is_loaded_by_the_root() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let build = run.artifact("BUILD.bazel");
+    assert!(
+        build.contains("load(\"//:kbuild/post_") && build.contains(" + kbuild_post_"),
+        "the root declares the make `linked` started:\n{build}"
+    );
+    let list = run.artifact("kbuild/makes.list");
+    assert!(list.contains("post_"), "the make registered itself:\n{list}");
+}

@@ -26,7 +26,7 @@ runs in every make Kbuild starts, and writes the Bazel files itself:
 
 - each directory's make writes `kbuild/<key>.bzl`, a macro returning one `kbuild_spec`
   per target it would build, and a call to the macro of each make it starts;
-- the top-level make writes `BUILD.bazel`, `MODULE.bazel` and `kbuild/rules.bzl`;
+- the top-level make writes `BUILD.bazel`, `MODULE.bazel` and `kbuild/rules.bzl`, and loads every make no parent starts (a script's make, such as the link's) from the registry `kbuild/makes.list`;
 - each action runs Kbuild's own command (cut before the `fixdep` step that
   records dependencies for Kbuild's next run), from the tree root. Its inputs
   are the prerequisites make lists plus what the compile reads: the plugin
