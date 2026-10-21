@@ -999,7 +999,7 @@ pub fn finish() -> Result<(), Error> {
     // Search directories repeat from action to action; name each set once.
     let mut dir_sets: Vec<&Vec<String>> = Vec::new();
     for rule in &run.rules {
-        if !rule.maybe_names.is_empty() && !dir_sets.contains(&&rule.maybe_dirs) {
+        if !rule.maybe_dirs.is_empty() && !dir_sets.contains(&&rule.maybe_dirs) {
             dir_sets.push(&rule.maybe_dirs);
         }
     }
@@ -1039,6 +1039,8 @@ pub fn finish() -> Result<(), Error> {
                 doc.push_str(&format!("            {},\n", q(n)));
             }
             doc.push_str("        ],\n");
+        }
+        if !rule.maybe_dirs.is_empty() {
             let i = dir_sets.iter().position(|d| **d == rule.maybe_dirs).unwrap_or(0);
             doc.push_str(&format!("        maybe_dirs = DIRS_{i},\n"));
         }

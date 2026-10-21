@@ -40,6 +40,10 @@ def _kbuild_action_impl(ctx):
         'while IFS= read -r p && IFS= read -r l; do mkdir -p "$(dirname "$l")"; ln -sf "$PWD/$p" "$l"; done < ' + _quote(links.path),
         "mkdir -p " + _quote("/".join(ctx.attr.out.split("/")[:-1]) or "."),
     ]
+    # The compiler is told to treat a missing -I directory as an error, and a
+    # directory exists here only if some input is in it.
+    for d in ctx.attr.dirs:
+        lines.append("mkdir -p " + _quote(d))
     for k, v in sorted(ctx.attr.env.items()):
         lines.append("export %s=%s" % (k, '"$PWD"' if v == "$PWD" else _quote(v)))
     lines += ctx.attr.cmds
@@ -69,6 +73,7 @@ _kbuild_action = rule(
         "cmds": attr.string_list(),
         "env": attr.string_dict(),
         "thin": attr.bool(default = False),
+        "dirs": attr.string_list(),
     },
 )
 
@@ -93,7 +98,8 @@ def kbuild_spec(name, out, srcs = [], cmds = [], env = {}, thin = False, infra =
         that another target produces is also a source.
       maybe_names: include names that were not found in any of `maybe_dirs`;
         `maybe_dirs/name` is also a source where another target produces it.
-      maybe_dirs: the include search directories, relative to the root.
+      maybe_dirs: the include search directories, relative to the root; the
+        action creates them, since the compiler fails on one that is missing.
     """
     return struct(
         name = name,
@@ -144,6 +150,7 @@ def kbuild_declare(specs):
             cmds = s.cmds,
             env = s.env,
             thin = s.thin,
+            dirs = s.maybe_dirs,
         )
     if infra:
         native.filegroup(

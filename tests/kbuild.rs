@@ -262,3 +262,19 @@ fn an_include_is_found_in_command_line_order() {
     assert!(rule.contains("\"zdir/ord.h\""), "the first -I directory's header:\n{rule}");
     assert!(!rule.contains("adir/ord.h"), "not the one that sorts first:\n{rule}");
 }
+
+/// A compile fails if a directory it is told to search is missing, and in the
+/// sandbox a directory exists only if an input is in it: the action creates
+/// its `-I` directories.
+#[test]
+fn an_action_creates_the_include_directories_of_its_compile() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let top = fragment(&run, "Makefile_");
+    assert!(
+        top.contains("\"zdir\"") && top.contains("\"adir\"") && top.contains("maybe_dirs = DIRS_"),
+        "the compile's -I directories are carried to the action:\n{top}"
+    );
+    let rules = run.artifact("kbuild/rules.bzl");
+    assert!(rules.contains("for d in ctx.attr.dirs") && rules.contains("mkdir -p"), "{rules}");
+}
