@@ -13,7 +13,7 @@ endef
 export KBUILD_FLAG := set
 
 .PHONY: all sub
-all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o
+all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o
 
 # A header the compile includes but does not list as a prerequisite, as in
 # Kbuild, where building it first is a matter of ordering.
@@ -63,3 +63,11 @@ gen2.o: gen2.c
 
 gen2.c:
 	echo > $@
+
+# A compile of a source that is there and includes nothing missing.
+plain.o: plain.c
+	cc -c -I. -o $@ $<
+
+# A compile of a source that includes a file beside it that is not there.
+miss.o: miss.c
+	cc -c -I. -o $@ $<

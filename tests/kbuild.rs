@@ -15,8 +15,9 @@ use std::fs;
 /// Build the fixture's tree and run the plugin over it.
 fn kbuild_run(grants: &str) -> Run {
     let plugin = kbuild_component();
-    let dir = workdir("kbuild_top.mk", &["main.c", "shared.h", "sub/a.c"]);
+    let dir = workdir("kbuild_top.mk", &["main.c", "shared.h", "sub/a.c", "plain.c", "miss.c"]);
     fs::write(dir.join("main.c"), "#include \"gen.h\"\n").expect("write main.c");
+    fs::write(dir.join("miss.c"), "#include \"nothere.h\"\n").expect("write miss.c");
     fs::copy(
         harness::manifest_dir().join("tests/fixtures/kbuild_sub.mk"),
         dir.join("sub.mk"),
@@ -227,8 +228,9 @@ fn targets_one_recipe_makes_each_get_an_action_and_are_not_inputs_of_each_other(
     assert!(!h.contains("grp.c1"), "the source is not an input of the header:\n{h}");
 }
 
-/// A compile of a generated source cannot be scanned for includes, so it
-/// depends on the tree's headers instead; a compile of a real source does not.
+/// A compile of a generated source, or of one that includes a file that is
+/// not there yet, cannot be scanned for includes, so it depends on the tree's
+/// headers instead; a compile of a source whose includes all exist does not.
 #[test]
 fn a_compile_of_a_generated_source_depends_on_the_tree_s_headers() {
     let run = kbuild_run(GRANTS);
@@ -242,5 +244,6 @@ fn a_compile_of_a_generated_source_depends_on_the_tree_s_headers() {
         rest[..rest.find("specs.append").unwrap_or(rest.len())].to_string()
     };
     assert!(rule("gen2.o").contains("infra = True"), "{}", rule("gen2.o"));
-    assert!(!rule("main.o").contains("infra = True"), "{}", rule("main.o"));
+    assert!(rule("miss.o").contains("infra = True"), "miss.c includes a file that is not there:\n{}", rule("miss.o"));
+    assert!(!rule("plain.o").contains("infra = True"), "{}", rule("plain.o"));
 }
