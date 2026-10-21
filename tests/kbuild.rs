@@ -15,10 +15,15 @@ use std::fs;
 /// Build the fixture's tree and run the plugin over it.
 fn kbuild_run(grants: &str) -> Run {
     let plugin = kbuild_component();
-    let dir = workdir("kbuild_top.mk", &["main.c", "shared.h", "sub/a.c", "plain.c", "miss.c", "zdir/ord.h", "adir/ord.h", "run.sh", "list.txt", "tools/ondisk"]);
+    let dir = workdir("kbuild_top.mk", &["main.c", "shared.h", "sub/a.c", "plain.c", "miss.c", "zdir/ord.h", "adir/ord.h", "run.sh", "list.txt", "tools/ondisk", "present.bin"]);
     fs::write(dir.join("main.c"), "#include \"gen.h\"\n").expect("write main.c");
     fs::write(dir.join("miss.c"), "#include \"nothere.h\"\n").expect("write miss.c");
     fs::write(dir.join("ord.c"), "#include <ord.h>\n").expect("write ord.c");
+    fs::write(
+        dir.join("inc.S"),
+        "\t.incbin\t\"present.bin\"\n\t.incbin\t\"gen.bin\"\n",
+    )
+    .expect("write inc.S");
     fs::copy(
         harness::manifest_dir().join("tests/fixtures/kbuild_sub.mk"),
         dir.join("sub.mk"),
@@ -366,4 +371,19 @@ fn a_tool_that_is_already_built_is_an_input() {
     let rest = &top[at..];
     let rule = &rest[..rest.find("cmds = [").expect("rule has commands")];
     assert!(rule.contains("\"tools/ondisk\""), "{rule}");
+}
+
+/// Assembly names files with `.incbin`, from the tree root: one that exists
+/// is an input, one that does not yet is a candidate for Bazel to resolve.
+#[test]
+fn files_assembly_embeds_by_name_are_inputs_or_candidates() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let top = fragment(&run, "Makefile_");
+    let at = top.find("out = \"inc.o\"").unwrap_or_else(|| panic!("no rule:\n{top}"));
+    let rest = &top[at..];
+    let rule = &rest[..rest.find("specs.append").unwrap_or(rest.len())];
+    let srcs = &rule[..rule.find("cmds = [").expect("rule has commands")];
+    assert!(srcs.contains("\"present.bin\""), "{rule}");
+    assert!(rule.contains("maybe = [") && rule.contains("\"gen.bin\""), "{rule}");
 }

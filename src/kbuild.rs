@@ -506,6 +506,17 @@ fn is_thin_archive(cmds: &[String]) -> bool {
 fn parse_includes(text: &str) -> Vec<(bool, String)> {
     let mut out = Vec::new();
     for line in text.lines() {
+        // The assembler's own includes: `.incbin "arch/x86/realmode/rm/x.bin"`
+        // names a file from the tree root, which a leading `/` marks (a real
+        // absolute path never resolves to a file in the tree).
+        if let Some(rest) = line.trim_start().strip_prefix(".incbin").or_else(|| line.trim_start().strip_prefix(".include")) {
+            if let Some(quoted) = rest.trim_start().strip_prefix('"') {
+                if let Some(end) = quoted.find('"') {
+                    out.push((true, format!("/{}", &quoted[..end])));
+                }
+            }
+            continue;
+        }
         let Some(rest) = line.trim_start().strip_prefix('#') else {
             continue;
         };
@@ -581,6 +592,17 @@ impl Scanner {
         let wanted = self.includes_of(file).clone();
         let mut out = Resolved::default();
         for (quoted, name) in wanted {
+            if let Some(from_top) = name.strip_prefix('/') {
+                // Relative to the tree root, as the assembler reads it.
+                if let Some(path) = from_root("", from_top) {
+                    if on_disk(&path) {
+                        out.found.push(path);
+                    } else {
+                        out.missing_beside.push(path);
+                    }
+                }
+                continue;
+            }
             let beside = quoted.then(|| from_root(&here, &name)).flatten();
             let hit = beside
                 .clone()
