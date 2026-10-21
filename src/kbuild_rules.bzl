@@ -77,7 +77,11 @@ _kbuild_action = rule(
     },
 )
 
-def kbuild_spec(name, out, srcs = [], cmds = [], env = {}, thin = False, infra = False, maybe = [], maybe_names = [], maybe_dirs = [], group = []):
+def _rule_name(out):
+    name = "".join([c if c.isalnum() else "_" for c in out.elems()])
+    return name + "_" if name == out else name
+
+def kbuild_spec(name, out, srcs = [], cmds = [], env = {}, thin = False, infra = False, maybe = [], maybe_names = [], maybe_dirs = [], group = [], side = []):
     """One target of the build: run `cmds` to produce `out` from `srcs`.
 
     This only describes the target; `kbuild_declare` creates it, once it has
@@ -100,6 +104,9 @@ def kbuild_spec(name, out, srcs = [], cmds = [], env = {}, thin = False, infra =
         `maybe_dirs/name` is also a source where another target produces it.
       group: every output of the recipe, when it makes several; whoever
         uses one of them gets them all as inputs.
+      side: files the command names beside `out` that nothing is known to
+        produce. Each that no target in the build produces is an output of
+        this action too (`genheaders flask.h av_permissions.h`).
       maybe_dirs: the include search directories, relative to the root; the
         action creates them, since the compiler fails on one that is missing.
     """
@@ -115,6 +122,7 @@ def kbuild_spec(name, out, srcs = [], cmds = [], env = {}, thin = False, infra =
         maybe_names = maybe_names,
         maybe_dirs = maybe_dirs,
         group = group,
+        side = side,
     )
 
 def kbuild_declare(specs):
@@ -126,6 +134,39 @@ def kbuild_declare(specs):
     """
     outs = {s.out: True for s in specs}
     groups = {s.out: s.group for s in specs if s.group}
+
+    # A file a command names that no target produces is an output of the
+    # action whose command names it: it gets an action of its own, which runs
+    # the same command, and joins the group.
+    made = {}
+    extra = []
+    for s in specs:
+        mine = []
+        for c in s.side:
+            if c not in outs and c not in made:
+                made[c] = True
+                mine.append(c)
+        if mine:
+            group = [s.out] + mine
+            groups[s.out] = group
+            for c in mine:
+                groups[c] = group
+                extra.append(struct(
+                    name = _rule_name(c),
+                    out = c,
+                    srcs = s.srcs,
+                    cmds = s.cmds,
+                    env = s.env,
+                    thin = s.thin,
+                    infra = s.infra,
+                    maybe = s.maybe,
+                    maybe_names = s.maybe_names,
+                    maybe_dirs = s.maybe_dirs,
+                    group = group,
+                    side = [],
+                ))
+    specs = specs + extra
+    outs = {s.out: True for s in specs}
     seen = {}
     infra = False
     for s in specs:

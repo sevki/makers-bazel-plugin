@@ -57,6 +57,9 @@ struct Rule {
     maybe: Vec<String>,
     maybe_names: Vec<String>,
     maybe_dirs: Vec<String>,
+    /// Files the command names beside its target, not on disk and not
+    /// prerequisites: outputs of this action if no rule makes them.
+    side: Vec<String>,
     /// Every output of the recipe, this one included, when it makes several.
     /// Whoever uses one of them may use any (`foo.asn1.c` includes
     /// `foo.asn1.h`), so all of them are inputs.
@@ -776,7 +779,8 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
     // Targets one recipe makes together (`%.asn1.c %.asn1.h: %.asn1`): they
     // are not inputs of each other, and each is an output of an action that
     // runs the recipe.
-    let mut siblings: Vec<String> = target
+    let mut side: Vec<String> = Vec::new();
+    let siblings: Vec<String> = target
         .also_make()
         .to_list()
         .iter()
@@ -786,7 +790,9 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
     // A recipe can also make files make has not been told about: Kbuild's
     // `genheaders flask.h av_permissions.h` makes both, and only `flask.h`
     // has a rule. A command that is not a compile and names a header or
-    // source beside its target, that does not exist yet, makes it too.
+    // source beside its target, that does not exist yet, may make it too:
+    // `kbuild_declare` decides, as only it knows every rule (`bzImage`'s
+    // command names `zoffset.h`, which a rule of its own makes).
     if rel.is_empty() {
         let prerequisites: BTreeSet<String> = target
             .dep_edges()
@@ -813,10 +819,11 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
                 if beside
                     && path != name
                     && !siblings.contains(&path)
+                    && !side.contains(&path)
                     && !prerequisites.contains(&path)
                     && !on_disk(&path)
                 {
-                    siblings.push(path);
+                    side.push(path);
                 }
             }
         }
@@ -947,6 +954,7 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
                 maybe: maybe.clone(),
                 maybe_names: maybe_names.clone(),
                 maybe_dirs: maybe_dirs.clone(),
+                side: Vec::new(),
                 group: group.clone(),
             });
         }
@@ -960,6 +968,7 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
             maybe,
             maybe_names,
             maybe_dirs,
+            side,
             group,
         });
     });
@@ -1114,6 +1123,13 @@ pub fn finish() -> Result<(), Error> {
         if !rule.maybe_dirs.is_empty() {
             let i = dir_sets.iter().position(|d| **d == rule.maybe_dirs).unwrap_or(0);
             doc.push_str(&format!("        maybe_dirs = DIRS_{i},\n"));
+        }
+        if !rule.side.is_empty() {
+            doc.push_str("        side = [\n");
+            for x in &rule.side {
+                doc.push_str(&format!("            {},\n", q(x)));
+            }
+            doc.push_str("        ],\n");
         }
         if !rule.group.is_empty() {
             doc.push_str("        group = [\n");

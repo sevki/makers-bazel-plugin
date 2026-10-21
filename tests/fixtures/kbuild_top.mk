@@ -13,7 +13,7 @@ endef
 export KBUILD_FLAG := set
 
 .PHONY: all sub
-all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o ord.o grp.o listed.out flask.h
+all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o ord.o grp.o listed.out flask.h flask2.h other.h
 
 # A header the compile includes but does not list as a prerequisite, as in
 # Kbuild, where building it first is a matter of ordering.
@@ -90,3 +90,12 @@ listed.out:
 # `genheaders flask.h av_permissions.h` does.
 flask.h:
 	echo gen flask.h perms.h
+
+# A command that names a header with a rule of its own, as `bzImage`'s names
+# `zoffset.h`: that header is not an output of this action, or whoever needs
+# it would need this too.
+flask2.h:
+	echo gen flask2.h other.h
+
+other.h:
+	echo other > $@
