@@ -25,6 +25,12 @@ main.o: main.c shared.h
 # Kbuild's `$(obj)/%/built-in.a: $(obj)/% ;` does.
 sub/lib.a: sub ;
 
+# A line that does something and then starts a make, like Kbuild's link: the
+# make is part of producing the file, not a rule of its own.
+all: linked
+linked: main.o
+	+cc -o $@ main.o; $(MAKE) -f sub.mk obj=post
+
 # A directory's own make, as Kbuild starts it.
 sub:
 	+$(MAKE) -f sub.mk obj=sub

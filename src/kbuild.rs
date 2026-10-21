@@ -188,8 +188,21 @@ impl Identity {
 fn this_identity() -> Identity {
     // The first makefile make read, which is the one `-f` named. Read as a
     // variable: it is the list `session.makefiles` is meant to be.
+    //
+    // Not `MAKEFILES`: makefiles injected for the plugin run, such as the
+    // stand-in rules for a dry run, are read first and are named by
+    // `bazel:skip-makefiles` so that they do not stand for the make.
+    let skip: Vec<String> = super::setting("skip-makefiles")
+        .map(|v| v.split(',').map(|s| resolve("/", s.trim())).collect())
+        .unwrap_or_default();
+    let cwd = makers_plugin::session::working_directory();
     let makefile = makers_plugin::vars::get("MAKEFILE_LIST")
-        .and_then(|v| v.value.split_whitespace().next().map(str::to_string))
+        .and_then(|v| {
+            v.value
+                .split_whitespace()
+                .find(|m| !skip.contains(&resolve(&cwd, m)))
+                .map(str::to_string)
+        })
         .unwrap_or_else(|| "Makefile".to_string());
     let obj = makers_plugin::vars::get("obj").map(|v| v.value);
     // `MAKECMDGOALS` is the goals as written on the command line, and empty
@@ -367,6 +380,58 @@ fn commands(expanded: &str) -> Vec<(String, bool)> {
     out
 }
 
+/// A command line's statements: split at `;`, `&&`, `||` and newlines that
+/// are not quoted. `a | b` stays one statement.
+fn statements(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut chars = text.chars().peekable();
+    let (mut single, mut double) = (false, false);
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if !single => {
+                cur.push(c);
+                if let Some(n) = chars.next() {
+                    cur.push(n);
+                }
+            }
+            '\'' if !double => {
+                single = !single;
+                cur.push(c);
+            }
+            '"' if !single => {
+                double = !double;
+                cur.push(c);
+            }
+            ';' | '\n' if !single && !double => out.push(std::mem::take(&mut cur)),
+            '&' | '|' if !single && !double && chars.peek() == Some(&c) => {
+                chars.next();
+                out.push(std::mem::take(&mut cur));
+            }
+            c => cur.push(c),
+        }
+    }
+    out.push(cur);
+    out.into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+fn starts_make(statement: &str) -> bool {
+    shell_words(statement)
+        .first()
+        .is_some_and(|w| w == "make" || w.ends_with("/make"))
+}
+
+/// Statements that only announce or tidy, and so do not make a line more than
+/// a recursion: Kbuild wraps its commands in `set -e`, an `echo` of the
+/// short form and `trap`s that delete the target on interrupt.
+fn is_noise(statement: &str) -> bool {
+    let word = statement.split_whitespace().next().unwrap_or("");
+    matches!(word, "set" | "echo" | "trap" | ":")
+}
+
 /// Directories a command asks the compiler to search for headers.
 fn include_dirs(cmds: &[String]) -> BTreeSet<String> {
     let mut dirs = BTreeSet::new();
@@ -517,6 +582,13 @@ fn forced_includes(cmds: &[String]) -> Vec<String> {
     out
 }
 
+fn is_c_like(path: &str) -> bool {
+    matches!(
+        path.rsplit('.').next(),
+        Some("c" | "S" | "s" | "cc" | "cpp" | "h")
+    )
+}
+
 /// Whether a command compiles or preprocesses, and so reads headers.
 fn reads_headers(cmds: &[String]) -> bool {
     cmds.iter().any(|c| {
@@ -617,10 +689,22 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
             }
         };
         if line.recursive {
+            let lines = commands(&expanded);
+            let stmts: Vec<String> = lines.iter().flat_map(|(c, _)| statements(c)).collect();
+            let mixed = stmts.iter().any(|s| !starts_make(s) && !is_noise(s));
+            if mixed {
+                // A line that does something and then starts a make, such as
+                // Kbuild's link, which runs `link-vmlinux.sh` and then the
+                // make that strips relocations. The action runs all of it:
+                // the make is part of how the file is produced, not a
+                // separate file's rule.
+                cmds.extend(lines);
+                continue;
+            }
             recursive = true;
             let cwd = makers_plugin::session::working_directory();
-            for (command, _) in commands(&expanded) {
-                if let Some(child) = child_identity(&cwd, &command) {
+            for stmt in &stmts {
+                if let Some(child) = child_identity(&cwd, stmt) {
                     RUN.with(|r| r.borrow_mut().children.insert(child.key()));
                 }
             }
@@ -660,7 +744,7 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
     // What the compile reads beyond the prerequisites make lists. Only
     // possible in a make that runs at the tree root, where paths in the
     // command mean the same as paths on disk.
-    if rel.is_empty() && reads_headers(&cmds) {
+    if rel.is_empty() && (reads_headers(&cmds) || srcs.iter().any(|s| is_c_like(s))) {
         let dirs: Vec<String> = include_dirs(&cmds).into_iter().collect();
         let mut start: Vec<String> = forced_includes(&cmds);
         start.extend(srcs.iter().filter(|s| on_disk(s)).cloned());

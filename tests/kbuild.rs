@@ -130,3 +130,20 @@ fn without_expand_variables_no_rules_are_written_from_unexpanded_recipes() {
         .unwrap_or(false);
     assert!(!rules, "no rule carries a command:\n{}", run.stderr);
 }
+
+/// A recipe line that runs a command and then starts a make is one action,
+/// make included, rather than a recursion with the command dropped.
+#[test]
+fn a_line_that_runs_a_command_then_a_make_is_kept_whole() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let top = fragment(&run, "Makefile_");
+    assert!(
+        top.contains("out = \"linked\""),
+        "`linked` is built by an action:\n{top}"
+    );
+    assert!(
+        top.contains("cc -o linked main.o; ") && top.contains("sub.mk obj=post"),
+        "the command and the make both run in it:\n{top}"
+    );
+}
