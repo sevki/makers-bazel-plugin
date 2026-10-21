@@ -776,13 +776,51 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
     // Targets one recipe makes together (`%.asn1.c %.asn1.h: %.asn1`): they
     // are not inputs of each other, and each is an output of an action that
     // runs the recipe.
-    let siblings: Vec<String> = target
+    let mut siblings: Vec<String> = target
         .also_make()
         .to_list()
         .iter()
         .filter_map(|n| from_root(&rel, &norm(&n.name())))
         .filter(|n| *n != name)
         .collect();
+    // A recipe can also make files make has not been told about: Kbuild's
+    // `genheaders flask.h av_permissions.h` makes both, and only `flask.h`
+    // has a rule. A command that is not a compile and names a header or
+    // source beside its target, that does not exist yet, makes it too.
+    if rel.is_empty() {
+        let prerequisites: BTreeSet<String> = target
+            .dep_edges()
+            .iter()
+            .filter_map(|e| {
+                let written = if e.name.is_empty() { e.target.name() } else { e.name.clone() };
+                from_root(&rel, &written)
+            })
+            .collect();
+        let dir = name.rsplit_once('/').map_or("", |(d, _)| d).to_string();
+        for (c, _) in &cmds {
+            let words = shell_words(c);
+            if words.iter().any(|w| matches!(w.as_str(), "-c" | "-E" | "-S")) {
+                continue;
+            }
+            for w in words {
+                if w.starts_with('-') || w.contains('$') || !(w.ends_with(".h") || w.ends_with(".c")) {
+                    continue;
+                }
+                let Some(path) = from_root("", &w) else {
+                    continue;
+                };
+                let beside = path.rsplit_once('/').map_or("", |(d, _)| d) == dir;
+                if beside
+                    && path != name
+                    && !siblings.contains(&path)
+                    && !prerequisites.contains(&path)
+                    && !on_disk(&path)
+                {
+                    siblings.push(path);
+                }
+            }
+        }
+    }
 
     let mut srcs: Vec<String> = Vec::new();
     for edge in target.dep_edges() {

@@ -308,3 +308,17 @@ fn a_file_a_script_is_handed_by_name_is_an_input() {
     let rule = &rest[..rest.find("cmds = [").expect("rule has commands")];
     assert!(rule.contains("\"list.txt\"") && rule.contains("\"run.sh\""), "{rule}");
 }
+
+/// A file a recipe makes that make was not told about (named beside the
+/// target in a command that is not a compile) is an output of the action too.
+#[test]
+fn a_file_a_recipe_makes_that_make_does_not_know_of_is_an_output() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let top = fragment(&run, "Makefile_");
+    assert!(top.contains("out = \"perms.h\""), "an action makes the side output:\n{top}");
+    let at = top.find("out = \"flask.h\"").unwrap_or_else(|| panic!("no rule:\n{top}"));
+    let rest = &top[at..];
+    let rule = &rest[..rest.find("specs.append").unwrap_or(rest.len())];
+    assert!(rule.contains("group = [") && rule.contains("\"perms.h\""), "{rule}");
+}

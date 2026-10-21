@@ -13,7 +13,7 @@ endef
 export KBUILD_FLAG := set
 
 .PHONY: all sub
-all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o ord.o grp.o listed.out
+all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o ord.o grp.o listed.out flask.h
 
 # A header the compile includes but does not list as a prerequisite, as in
 # Kbuild, where building it first is a matter of ordering.
@@ -85,3 +85,8 @@ grp.o: grp.c1
 # A script handed a file by name, which make does not list as a prerequisite.
 listed.out:
 	sh ./run.sh ./list.txt > $@
+
+# One command makes two headers, and make is told of only one, as Kbuild's
+# `genheaders flask.h av_permissions.h` does.
+flask.h:
+	echo gen flask.h perms.h
