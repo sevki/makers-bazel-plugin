@@ -865,8 +865,9 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
     // A command is handed files by name that make does not list: `usr/gen_
     // initramfs.sh` is given `usr/default_cpio_list`, a source file, and
     // `realmode.relocs` runs `arch/x86/tools/relocs`, which another rule
-    // builds. Those on disk are inputs of a script's action; those that are
-    // not are candidates, which `kbuild_declare` keeps if a rule makes them.
+    // builds (or `make prepare` already built, in which case it is on disk).
+    // Those on disk are inputs; those that are not are candidates, which
+    // `kbuild_declare` keeps if a rule makes them.
     // Only in a make at the tree root, where a path in the command is a path
     // on disk.
     let mut named: Vec<String> = Vec::new();
@@ -886,11 +887,7 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
                     continue;
                 }
                 match std::fs::metadata(&path) {
-                    Ok(m) if m.is_file() => {
-                        if infra {
-                            srcs.push(path);
-                        }
-                    }
+                    Ok(m) if m.is_file() => srcs.push(path),
                     Err(_) if path.contains('/') && !named.contains(&path) => named.push(path),
                     _ => {}
                 }

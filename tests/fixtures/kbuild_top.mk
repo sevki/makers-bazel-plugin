@@ -13,7 +13,7 @@ endef
 export KBUILD_FLAG := set
 
 .PHONY: all sub
-all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o ord.o grp.o listed.out flask.h flask2.h other.h hid.h used.out tools/mk
+all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o ord.o grp.o listed.out flask.h flask2.h other.h hid.h used.out tools/mk disk.out
 
 # A header the compile includes but does not list as a prerequisite, as in
 # Kbuild, where building it first is a matter of ordering.
@@ -112,3 +112,8 @@ used.out:
 
 tools/mk:
 	echo tool > $@
+
+# A tool that is already built, as `make prepare` leaves arch/x86/tools/relocs:
+# it is on disk, so no rule makes it, and the command still needs it.
+disk.out:
+	tools/ondisk > $@
