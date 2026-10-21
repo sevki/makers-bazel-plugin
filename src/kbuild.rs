@@ -452,8 +452,10 @@ fn is_noise(statement: &str) -> bool {
 }
 
 /// Directories a command asks the compiler to search for headers.
-fn include_dirs(cmds: &[String]) -> BTreeSet<String> {
-    let mut dirs = BTreeSet::new();
+/// The `-I` directories of the commands, in the order the compiler searches
+/// them: the first directory that has a header is the one it uses.
+fn include_dirs(cmds: &[String]) -> Vec<String> {
+    let mut dirs: Vec<String> = Vec::new();
     for cmd in cmds {
         let mut words = cmd.split_whitespace();
         while let Some(w) = words.next() {
@@ -465,7 +467,9 @@ fn include_dirs(cmds: &[String]) -> BTreeSet<String> {
             if let Some(d) = dir {
                 let d = norm(d.trim_matches(|c| c == '\'' || c == '"'));
                 if !d.is_empty() && d != "." && !d.starts_with('/') && !d.contains("..") {
-                    dirs.insert(d);
+                    if !dirs.contains(&d) {
+                        dirs.push(d);
+                    }
                 }
             }
         }
@@ -813,7 +817,7 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
     let mut maybe_names: Vec<String> = Vec::new();
     let mut maybe_dirs: Vec<String> = Vec::new();
     if rel.is_empty() && (reads_headers(&cmds) || srcs.iter().any(|s| is_c_like(s))) {
-        let dirs: Vec<String> = include_dirs(&cmds).into_iter().collect();
+        let dirs: Vec<String> = include_dirs(&cmds);
         let mut start: Vec<String> = forced_includes(&cmds);
         start.extend(srcs.iter().filter(|s| on_disk(s)).cloned());
         let reach = RUN.with(|r| r.borrow_mut().scanner.reachable(&start, &dirs));

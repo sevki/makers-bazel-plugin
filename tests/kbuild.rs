@@ -15,9 +15,10 @@ use std::fs;
 /// Build the fixture's tree and run the plugin over it.
 fn kbuild_run(grants: &str) -> Run {
     let plugin = kbuild_component();
-    let dir = workdir("kbuild_top.mk", &["main.c", "shared.h", "sub/a.c", "plain.c", "miss.c"]);
+    let dir = workdir("kbuild_top.mk", &["main.c", "shared.h", "sub/a.c", "plain.c", "miss.c", "zdir/ord.h", "adir/ord.h"]);
     fs::write(dir.join("main.c"), "#include \"gen.h\"\n").expect("write main.c");
     fs::write(dir.join("miss.c"), "#include \"nothere.h\"\n").expect("write miss.c");
+    fs::write(dir.join("ord.c"), "#include <ord.h>\n").expect("write ord.c");
     fs::copy(
         harness::manifest_dir().join("tests/fixtures/kbuild_sub.mk"),
         dir.join("sub.mk"),
@@ -246,4 +247,18 @@ fn a_compile_of_a_generated_source_depends_on_the_tree_s_headers() {
     assert!(rule("gen2.o").contains("infra = True"), "{}", rule("gen2.o"));
     assert!(rule("miss.o").contains("infra = True"), "miss.c includes a file that is not there:\n{}", rule("miss.o"));
     assert!(!rule("plain.o").contains("infra = True"), "{}", rule("plain.o"));
+}
+
+/// An include is found in the first search directory that has it, in the
+/// order of the command line, as the compiler does.
+#[test]
+fn an_include_is_found_in_command_line_order() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let top = fragment(&run, "Makefile_");
+    let at = top.find("out = \"ord.o\"").unwrap_or_else(|| panic!("no rule for ord.o:\n{top}"));
+    let rest = &top[at..];
+    let rule = &rest[..rest.find("cmds = [").expect("rule has commands")];
+    assert!(rule.contains("\"zdir/ord.h\""), "the first -I directory's header:\n{rule}");
+    assert!(!rule.contains("adir/ord.h"), "not the one that sorts first:\n{rule}");
 }

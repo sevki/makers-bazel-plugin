@@ -13,7 +13,7 @@ endef
 export KBUILD_FLAG := set
 
 .PHONY: all sub
-all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o
+all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o ord.o
 
 # A header the compile includes but does not list as a prerequisite, as in
 # Kbuild, where building it first is a matter of ordering.
@@ -71,3 +71,8 @@ plain.o: plain.c
 # A compile of a source that includes a file beside it that is not there.
 miss.o: miss.c
 	cc -c -I. -o $@ $<
+
+# Two search directories that both have the header: the compiler takes the
+# first one on the command line, which is not the first alphabetically.
+ord.o: ord.c
+	cc -c -Izdir -Iadir -o $@ $<
