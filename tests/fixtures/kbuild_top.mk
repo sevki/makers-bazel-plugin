@@ -13,7 +13,7 @@ endef
 export KBUILD_FLAG := set
 
 .PHONY: all sub
-all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o ord.o
+all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o ord.o grp.o
 
 # A header the compile includes but does not list as a prerequisite, as in
 # Kbuild, where building it first is a matter of ordering.
@@ -76,3 +76,8 @@ miss.o: miss.c
 # first one on the command line, which is not the first alphabetically.
 ord.o: ord.c
 	cc -c -Izdir -Iadir -o $@ $<
+
+# A consumer of one output of a group is a consumer of the group: the source
+# includes the header its recipe made beside it.
+grp.o: grp.c1
+	cc -c -o $@ $<

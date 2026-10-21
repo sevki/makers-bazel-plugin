@@ -278,3 +278,19 @@ fn an_action_creates_the_include_directories_of_its_compile() {
     let rules = run.artifact("kbuild/rules.bzl");
     assert!(rules.contains("for d in ctx.attr.dirs") && rules.contains("mkdir -p"), "{rules}");
 }
+
+/// Each output of a recipe that makes several records all of them, so that
+/// whoever uses one is given the rest (the generated `.c` includes its `.h`).
+#[test]
+fn the_outputs_of_one_recipe_are_recorded_as_a_group() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let top = fragment(&run, "Makefile_");
+    let at = top.find("out = \"grp.c1\"").unwrap_or_else(|| panic!("no rule:\n{top}"));
+    let rest = &top[at..];
+    let rule = &rest[..rest.find("specs.append").unwrap_or(rest.len())];
+    assert!(
+        rule.contains("group = [") && rule.contains("\"grp.h1\"") && rule.contains("\"grp.c1\""),
+        "{rule}"
+    );
+}

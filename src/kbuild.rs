@@ -57,6 +57,10 @@ struct Rule {
     maybe: Vec<String>,
     maybe_names: Vec<String>,
     maybe_dirs: Vec<String>,
+    /// Every output of the recipe, this one included, when it makes several.
+    /// Whoever uses one of them may use any (`foo.asn1.c` includes
+    /// `foo.asn1.h`), so all of them are inputs.
+    group: Vec<String>,
 }
 
 #[derive(Default)]
@@ -867,6 +871,11 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
                 )),
             }
         }
+        let group: Vec<String> = if siblings.is_empty() {
+            Vec::new()
+        } else {
+            siblings.iter().cloned().chain(std::iter::once(name.clone())).collect()
+        };
         for sibling in siblings {
             run.rules.push(Rule {
                 out: sibling,
@@ -878,6 +887,7 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
                 maybe: maybe.clone(),
                 maybe_names: maybe_names.clone(),
                 maybe_dirs: maybe_dirs.clone(),
+                group: group.clone(),
             });
         }
         run.rules.push(Rule {
@@ -890,6 +900,7 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
             maybe,
             maybe_names,
             maybe_dirs,
+            group,
         });
     });
     Ok(())
@@ -1043,6 +1054,13 @@ pub fn finish() -> Result<(), Error> {
         if !rule.maybe_dirs.is_empty() {
             let i = dir_sets.iter().position(|d| **d == rule.maybe_dirs).unwrap_or(0);
             doc.push_str(&format!("        maybe_dirs = DIRS_{i},\n"));
+        }
+        if !rule.group.is_empty() {
+            doc.push_str("        group = [\n");
+            for g in &rule.group {
+                doc.push_str(&format!("            {},\n", q(g)));
+            }
+            doc.push_str("        ],\n");
         }
         if rule.env && run.env.is_some() {
             doc.push_str("        env = KBUILD_ENV,\n");

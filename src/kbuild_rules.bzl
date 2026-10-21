@@ -77,7 +77,7 @@ _kbuild_action = rule(
     },
 )
 
-def kbuild_spec(name, out, srcs = [], cmds = [], env = {}, thin = False, infra = False, maybe = [], maybe_names = [], maybe_dirs = []):
+def kbuild_spec(name, out, srcs = [], cmds = [], env = {}, thin = False, infra = False, maybe = [], maybe_names = [], maybe_dirs = [], group = []):
     """One target of the build: run `cmds` to produce `out` from `srcs`.
 
     This only describes the target; `kbuild_declare` creates it, once it has
@@ -98,6 +98,8 @@ def kbuild_spec(name, out, srcs = [], cmds = [], env = {}, thin = False, infra =
         that another target produces is also a source.
       maybe_names: include names that were not found in any of `maybe_dirs`;
         `maybe_dirs/name` is also a source where another target produces it.
+      group: every output of the recipe, when it makes several; whoever
+        uses one of them gets them all as inputs.
       maybe_dirs: the include search directories, relative to the root; the
         action creates them, since the compiler fails on one that is missing.
     """
@@ -112,6 +114,7 @@ def kbuild_spec(name, out, srcs = [], cmds = [], env = {}, thin = False, infra =
         maybe = maybe,
         maybe_names = maybe_names,
         maybe_dirs = maybe_dirs,
+        group = group,
     )
 
 def kbuild_declare(specs):
@@ -122,6 +125,7 @@ def kbuild_declare(specs):
     source here, where every target's output is known.
     """
     outs = {s.out: True for s in specs}
+    groups = {s.out: s.group for s in specs if s.group}
     seen = {}
     infra = False
     for s in specs:
@@ -140,6 +144,11 @@ def kbuild_declare(specs):
                 if m in outs and m != s.out and m not in have:
                     srcs.append(m)
                     have[m] = True
+        for x in list(srcs):
+            for g in groups.get(x, []):
+                if g not in have and g != s.out:
+                    srcs.append(g)
+                    have[g] = True
         if s.infra:
             infra = True
             srcs.append(":kbuild_infra")
