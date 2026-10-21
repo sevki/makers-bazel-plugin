@@ -765,6 +765,17 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
         return Ok(());
     }
 
+    // Targets one recipe makes together (`%.asn1.c %.asn1.h: %.asn1`): they
+    // are not inputs of each other, and each is an output of an action that
+    // runs the recipe.
+    let siblings: Vec<String> = target
+        .also_make()
+        .to_list()
+        .iter()
+        .filter_map(|n| from_root(&rel, &norm(&n.name())))
+        .filter(|n| *n != name)
+        .collect();
+
     let mut srcs: Vec<String> = Vec::new();
     for edge in target.dep_edges() {
         if edge.flags.contains(DepFlags::ORDER_ONLY) || edge.target.phony() {
@@ -781,7 +792,7 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
         let Some(dep) = from_root(&rel, &written) else {
             continue;
         };
-        if srcs.contains(&dep) {
+        if srcs.contains(&dep) || siblings.contains(&dep) {
             continue;
         }
         // Not on disk and no rule here: another make builds it (`vmlinux.a`
@@ -844,6 +855,19 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
                     e.message
                 )),
             }
+        }
+        for sibling in siblings {
+            run.rules.push(Rule {
+                out: sibling,
+                srcs: srcs.clone(),
+                cmds: cmds.clone(),
+                thin,
+                env: infra,
+                infra,
+                maybe: maybe.clone(),
+                maybe_names: maybe_names.clone(),
+                maybe_dirs: maybe_dirs.clone(),
+            });
         }
         run.rules.push(Rule {
             out: name,

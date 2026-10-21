@@ -205,3 +205,24 @@ fn a_make_a_command_starts_is_loaded_by_the_root() {
     let list = run.artifact("kbuild/makes.list");
     assert!(list.contains("post_"), "the make registered itself:\n{list}");
 }
+
+/// Two targets one recipe makes (`%.c1 %.h1: %.src`) each get an action that
+/// runs it, and neither is an input of the other.
+#[test]
+fn targets_one_recipe_makes_each_get_an_action_and_are_not_inputs_of_each_other() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let top = fragment(&run, "Makefile_");
+    let rule = |out: &str| -> String {
+        let at = top
+            .find(&format!("out = \"{out}\""))
+            .unwrap_or_else(|| panic!("no rule for {out}:\n{top}"));
+        let rest = &top[at..];
+        rest[..rest.find("cmds = [").expect("rule has commands")].to_string()
+    };
+    let c = rule("grp.c1");
+    let h = rule("grp.h1");
+    assert!(c.contains("\"grp.src\"") && h.contains("\"grp.src\""), "{c}\n{h}");
+    assert!(!c.contains("grp.h1"), "the header is not an input of the source:\n{c}");
+    assert!(!h.contains("grp.c1"), "the source is not an input of the header:\n{h}");
+}

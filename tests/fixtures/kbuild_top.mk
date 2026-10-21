@@ -13,7 +13,7 @@ endef
 export KBUILD_FLAG := set
 
 .PHONY: all sub
-all: sub app gen.h img-out.gen
+all: sub app gen.h img-out.gen grp.c1 grp.h1
 
 # A header the compile includes but does not list as a prerequisite, as in
 # Kbuild, where building it first is a matter of ordering.
@@ -48,3 +48,10 @@ img-%.gen: pre%.x
 
 preout.x:
 	echo pre > $@
+
+# One recipe makes two files, as Kbuild's `%.asn1.c %.asn1.h: %.asn1` does.
+%.c1 %.h1: %.src
+	echo gen $*
+
+grp.src:
+	echo src > $@
