@@ -862,24 +862,37 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
     let infra = cmds.iter().any(|c| {
         c.contains(".sh") || c.split_whitespace().any(|w| w == "make" || w.ends_with("/make"))
     });
-    // A script is handed files by name that make does not list (`usr/gen_
-    // initramfs.sh` is given `usr/default_cpio_list`, a source file). Those
-    // that are on disk are inputs. Only in a make at the tree root, where a
-    // path in the command is a path on disk.
-    if infra && rel.is_empty() {
+    // A command is handed files by name that make does not list: `usr/gen_
+    // initramfs.sh` is given `usr/default_cpio_list`, a source file, and
+    // `realmode.relocs` runs `arch/x86/tools/relocs`, which another rule
+    // builds. Those on disk are inputs of a script's action; those that are
+    // not are candidates, which `kbuild_declare` keeps if a rule makes them.
+    // Only in a make at the tree root, where a path in the command is a path
+    // on disk.
+    let mut named: Vec<String> = Vec::new();
+    if rel.is_empty() {
         for c in &cmds {
             for w in shell_words(c) {
-                if w.starts_with('-') || w.len() > 200 || w.contains('$') {
+                let plain = w
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '+' | '/' | '@'));
+                if w.starts_with('-') || w.len() > 200 || !plain {
                     continue;
                 }
                 let Some(path) = from_root("", &w) else {
                     continue;
                 };
-                if path != name
-                    && !srcs.contains(&path)
-                    && std::fs::metadata(&path).is_ok_and(|m| m.is_file())
-                {
-                    srcs.push(path);
+                if path == name || srcs.contains(&path) {
+                    continue;
+                }
+                match std::fs::metadata(&path) {
+                    Ok(m) if m.is_file() => {
+                        if infra {
+                            srcs.push(path);
+                        }
+                    }
+                    Err(_) if path.contains('/') && !named.contains(&path) => named.push(path),
+                    _ => {}
                 }
             }
         }
@@ -915,6 +928,11 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
     let generated_source = rel.is_empty()
         && reads_headers(&cmds)
         && (srcs.iter().any(|s| is_c_like(s) && !on_disk(s)) || !maybe.is_empty());
+    for path in named {
+        if !maybe.contains(&path) {
+            maybe.push(path);
+        }
+    }
     // Commands are relative to the make's own directory. The action starts
     // at the tree root, so a make that ran elsewhere goes there for them.
     let cmds: Vec<String> = cmds

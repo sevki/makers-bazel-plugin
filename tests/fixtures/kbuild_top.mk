@@ -13,7 +13,7 @@ endef
 export KBUILD_FLAG := set
 
 .PHONY: all sub
-all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o ord.o grp.o listed.out flask.h flask2.h other.h hid.h
+all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o ord.o grp.o listed.out flask.h flask2.h other.h hid.h used.out tools/mk
 
 # A header the compile includes but does not list as a prerequisite, as in
 # Kbuild, where building it first is a matter of ordering.
@@ -104,3 +104,11 @@ other.h:
 # place; that is not an output.
 hid.h:
 	echo gen hid.h .tmp_hid.h
+
+# A command runs a tool that another rule builds, which is not a
+# prerequisite, as `realmode.relocs` runs `arch/x86/tools/relocs`.
+used.out:
+	tools/mk used > $@
+
+tools/mk:
+	echo tool > $@

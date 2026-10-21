@@ -341,3 +341,16 @@ fn a_hidden_temporary_is_not_a_side_output_and_a_guessed_one_may_be_missing() {
     let rules = run.artifact("kbuild/rules.bzl");
     assert!(rules.contains("lenient"), "{rules}");
 }
+
+/// A path a command names, that does not exist yet and is not a prerequisite,
+/// is a candidate input: if a rule makes it (a tool built elsewhere), it is.
+#[test]
+fn a_tool_a_command_runs_is_a_candidate_input() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let top = fragment(&run, "Makefile_");
+    let at = top.find("out = \"used.out\"").unwrap_or_else(|| panic!("no rule:\n{top}"));
+    let rest = &top[at..];
+    let rule = &rest[..rest.find("specs.append").unwrap_or(rest.len())];
+    assert!(rule.contains("maybe = [") && rule.contains("\"tools/mk\""), "{rule}");
+}
