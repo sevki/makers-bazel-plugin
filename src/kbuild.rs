@@ -94,6 +94,18 @@ fn ident(s: &str) -> String {
     out
 }
 
+/// The name of the rule that produces `out`. A rule named like a file in the
+/// same package is ambiguous as a label (`vmlinux`), so it gets a suffix
+/// when its output has nothing in it for `ident` to replace.
+fn rule_name(out: &str) -> String {
+    let name = ident(out);
+    if name == out {
+        format!("{name}_")
+    } else {
+        name
+    }
+}
+
 /// FNV-1a, hex. Only used to keep names short and stable.
 fn short_hash(parts: &[&str]) -> String {
     let mut h: u32 = 0x811c_9dc5;
@@ -905,7 +917,7 @@ pub fn finish() -> Result<(), Error> {
     doc.push_str(&format!("\ndef {func}():\n    specs = []\n"));
     for rule in &run.rules {
         doc.push_str("    specs.append(kbuild_spec(\n");
-        doc.push_str(&format!("        name = {},\n", q(&ident(&rule.out))));
+        doc.push_str(&format!("        name = {},\n", q(&rule_name(&rule.out))));
         doc.push_str(&format!("        out = {},\n", q(&rule.out)));
         doc.push_str("        srcs = [\n");
         for s in &rule.srcs {
