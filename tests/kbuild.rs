@@ -457,3 +457,16 @@ fn a_rule_that_only_declares_a_dependency_is_marked_as_doing_nothing() {
     let rule = &rest[..rest.find("specs.append").unwrap_or(rest.len())];
     assert!(!rule.contains("noop"), "the producer is not a no-op:\n{rule}");
 }
+
+/// A command that writes through `dir/../file` needs `dir`, which a sandbox
+/// has only if an input is in it: the action creates it.
+#[test]
+fn the_directory_before_a_dotdot_is_created() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let top = fragment(&run, "Makefile_");
+    let at = top.find("out = \"dots.out\"").unwrap_or_else(|| panic!("no rule:\n{top}"));
+    let rest = &top[at..];
+    let rule = &rest[..rest.find("specs.append").unwrap_or(rest.len())];
+    assert!(rule.contains("mkdirs = [") && rule.contains("\"nodir\""), "{rule}");
+}

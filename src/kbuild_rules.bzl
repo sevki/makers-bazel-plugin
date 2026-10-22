@@ -90,7 +90,7 @@ def _rule_name(out):
     name = "".join([c if c.isalnum() else "_" for c in out.elems()])
     return name + "_" if name == out else name
 
-def kbuild_spec(name, out, srcs = [], cmds = [], env = {}, thin = False, infra = False, maybe = [], maybe_names = [], maybe_dirs = [], group = [], side = [], noop = False):
+def kbuild_spec(name, out, srcs = [], cmds = [], env = {}, thin = False, infra = False, maybe = [], maybe_names = [], maybe_dirs = [], group = [], side = [], noop = False, mkdirs = []):
     """One target of the build: run `cmds` to produce `out` from `srcs`.
 
     This only describes the target; `kbuild_declare` creates it, once it has
@@ -113,6 +113,8 @@ def kbuild_spec(name, out, srcs = [], cmds = [], env = {}, thin = False, infra =
         `maybe_dirs/name` is also a source where another target produces it.
       group: every output of the recipe, when it makes several; whoever
         uses one of them gets them all as inputs.
+      mkdirs: directories the commands go through with `..`; the action
+        creates them.
       noop: the commands do nothing: `out` is made as a side effect of a
         prerequisite's commands, and becomes an output of that action.
       side: files the command names beside `out` that nothing is known to
@@ -135,6 +137,7 @@ def kbuild_spec(name, out, srcs = [], cmds = [], env = {}, thin = False, infra =
         group = group,
         side = side,
         noop = noop,
+        mkdirs = mkdirs,
         lenient = False,
     )
 
@@ -192,6 +195,7 @@ def kbuild_declare(specs):
                     maybe_dirs = s.maybe_dirs,
                     group = group,
                     side = [],
+                    mkdirs = s.mkdirs,
                     lenient = True,
                 ))
     specs = specs + extra
@@ -232,7 +236,7 @@ def kbuild_declare(specs):
             cmds = s.cmds,
             env = s.env,
             thin = s.thin,
-            dirs = s.maybe_dirs,
+            dirs = s.maybe_dirs + s.mkdirs,
             lenient = s.lenient,
             extra_outs = absorbed.get(s.out, []),
         )

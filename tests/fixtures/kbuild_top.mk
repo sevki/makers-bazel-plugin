@@ -15,7 +15,7 @@ export KBUILD_FLAG := set
 script_only := yes
 
 .PHONY: all sub
-all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o ord.o grp.o listed.out flask.h flask2.h other.h hid.h used.out tools/mk disk.out inc.o gen.bin inner.out prod.side
+all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o ord.o grp.o listed.out flask.h flask2.h other.h hid.h used.out tools/mk disk.out inc.o gen.bin inner.out prod.side dots.out
 
 # A header the compile includes but does not list as a prerequisite, as in
 # Kbuild, where building it first is a matter of ordering.
@@ -140,3 +140,8 @@ prod.out:
 
 prod.side: prod.out
 	@true
+
+# A path through `..` needs the directory before it, as
+# arch/x86/boot/compressed/../voffset.h does.
+dots.out:
+	echo made > nodir/../dots.out

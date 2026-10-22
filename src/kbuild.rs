@@ -60,6 +60,10 @@ struct Rule {
     /// Files the command names beside its target, not on disk and not
     /// prerequisites: outputs of this action if no rule makes them.
     side: Vec<String>,
+    /// Directories a path with `..` in the command goes through
+    /// (`compressed/../voffset.h`); the sandbox has them only if an input is
+    /// in them.
+    mkdirs: Vec<String>,
     /// The recipe does nothing (`@true`): the file is made as a side effect
     /// of a prerequisite's recipe (`$(obj)/vmlinux.relocs: vmlinux`), and
     /// `kbuild_declare` makes it an output of that action.
@@ -1082,6 +1086,26 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
         }
     }
 
+    // `> arch/x86/boot/compressed/../voffset.h` needs `compressed/` to exist.
+    let mut mkdirs: Vec<String> = Vec::new();
+    for c in &cmds {
+        for w in shell_words(c) {
+            let w = w.trim_start_matches('>');
+            if let Some((before, _)) = w.split_once("/../") {
+                let plain = before
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '+' | '/' | '@'));
+                if plain && !before.starts_with('/') && !before.is_empty() {
+                    if let Some(dir) = from_root("", before) {
+                        if !mkdirs.contains(&dir) {
+                            mkdirs.push(dir);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // A recipe of `true` and announcements only makes nothing itself.
     let noop = cmds.iter().all(|c| {
         statements(c)
@@ -1131,6 +1155,7 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
                 maybe_dirs: maybe_dirs.clone(),
                 side: Vec::new(),
                 noop: false,
+                mkdirs: mkdirs.clone(),
                 group: group.clone(),
             });
         }
@@ -1146,6 +1171,7 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
             maybe_dirs,
             side,
             noop,
+            mkdirs,
             group,
         });
     });
@@ -1310,6 +1336,13 @@ pub fn finish() -> Result<(), Error> {
         }
         if rule.noop {
             doc.push_str("        noop = True,\n");
+        }
+        if !rule.mkdirs.is_empty() {
+            doc.push_str("        mkdirs = [\n");
+            for d in &rule.mkdirs {
+                doc.push_str(&format!("            {},\n", q(d)));
+            }
+            doc.push_str("        ],\n");
         }
         if !rule.group.is_empty() {
             doc.push_str("        group = [\n");
