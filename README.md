@@ -46,7 +46,7 @@ Settings (`--plugin-arg bazel:<key>=<value>`):
 | `out.build-files` | **absolute** path of the tree, so makes started with `-C` agree  |
 | `fuel`            | raise it: following includes is more work than a plugin usually does |
 
-Grant `MAKERS_PLUGIN_ALLOW=bazel:expand-variables,read-file-content`.
+Grant `MAKERS_PLUGIN_ALLOW=bazel:expand-variables,read-file-content,read-environment` (the last is for the variables Kbuild exports to the make that runs a script, such as the link).
 
 The tree must be configured and prepared first (`make defconfig prepare`), and
 the plugin run is a dry run of the goals. A dry run still *executes* a recipe

@@ -310,7 +310,12 @@ impl Analyzer for BazelExport {
         let manifest = manifest
             .capability(Capability::ExpandVariables)
             // To tell a file that is on disk from one make would remake.
-            .capability(Capability::ReadFileContent);
+            .capability(Capability::ReadFileContent)
+            // Kbuild's top-level make exports `LINUXINCLUDE`, `srctree` and
+            // the rest to the make that does the work, so there they are
+            // environment values; a script that reads them (the link) needs
+            // them in its action.
+            .capability(Capability::ReadEnvironment);
         #[cfg(not(feature = "kbuild"))]
         let manifest = manifest.deterministic();
         manifest

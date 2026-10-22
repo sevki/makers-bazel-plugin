@@ -21,7 +21,7 @@ fn kbuild_run(grants: &str) -> Run {
     fs::write(dir.join("ord.c"), "#include <ord.h>\n").expect("write ord.c");
     fs::write(
         dir.join("run.sh"),
-        "echo ${script_only} $MAKE $PATH $1\n",
+        "echo ${script_only} $MAKE $PATH $FIXTURE_AMBIENT $1\n",
     )
     .expect("write run.sh");
     fs::write(
@@ -48,11 +48,12 @@ fn kbuild_run(grants: &str) -> Run {
             ("MAKERS_PLUGINS", &spec),
             ("MAKERS_PLUGIN_ARGS", &args),
             ("MAKERS_PLUGIN_ALLOW", grants),
+            ("FIXTURE_AMBIENT", "from the environment"),
         ],
     )
 }
 
-const GRANTS: &str = "bazel:expand-variables,read-file-content";
+const GRANTS: &str = "bazel:expand-variables,read-file-content,read-environment";
 
 /// The fragment a given make wrote, by the directory it was building.
 fn fragment(run: &Run, prefix: &str) -> String {
@@ -406,5 +407,9 @@ fn the_variables_a_script_reads_are_exported_to_its_action() {
     let env = &env[..env.find("\n}").expect("its end")];
     assert!(env.contains("\"script_only\": \"yes\""), "{env}");
     assert!(env.contains("\"MAKE\": \"make\""), "{env}");
+    assert!(
+        env.contains("\"FIXTURE_AMBIENT\": \"from the environment\""),
+        "an environment value the script reads is exported:\n{env}"
+    );
     assert!(!env.contains("\"PATH\""), "{env}");
 }
