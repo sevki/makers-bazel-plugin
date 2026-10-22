@@ -1032,6 +1032,24 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
                     _ => continue,
                 }
             };
+            // `RESOLVE_BTFIDS=./tools/bpf/resolve_btfids/resolve_btfids`: a
+            // value that names a file on disk is an input of the script.
+            for w in value.split_whitespace() {
+                let plain = w
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '+' | '/' | '@'));
+                if w.starts_with('-') || !plain || !w.contains('/') {
+                    continue;
+                }
+                if let Some(path) = from_root("", w) {
+                    if path != name
+                        && !srcs.contains(&path)
+                        && std::fs::metadata(&path).is_ok_and(|m| m.is_file())
+                    {
+                        srcs.push(path);
+                    }
+                }
+            }
             script_env.push((var, value));
         }
     }

@@ -21,7 +21,7 @@ fn kbuild_run(grants: &str) -> Run {
     fs::write(dir.join("ord.c"), "#include <ord.h>\n").expect("write ord.c");
     fs::write(
         dir.join("run.sh"),
-        "echo ${script_only} $MAKE $PATH $FIXTURE_AMBIENT $1\n",
+        "echo ${script_only} $MAKE $PATH $FIXTURE_AMBIENT $SCRIPT_TOOL $1\n",
     )
     .expect("write run.sh");
     fs::write(
@@ -49,6 +49,7 @@ fn kbuild_run(grants: &str) -> Run {
             ("MAKERS_PLUGIN_ARGS", &args),
             ("MAKERS_PLUGIN_ALLOW", grants),
             ("FIXTURE_AMBIENT", "from the environment"),
+            ("SCRIPT_TOOL", "./tools/ondisk"),
         ],
     )
 }
@@ -412,4 +413,17 @@ fn the_variables_a_script_reads_are_exported_to_its_action() {
         "an environment value the script reads is exported:\n{env}"
     );
     assert!(!env.contains("\"PATH\""), "{env}");
+}
+
+/// A variable a script reads whose value names a file on disk (Kbuild's
+/// `RESOLVE_BTFIDS`) makes that file an input of the script's action.
+#[test]
+fn a_file_a_script_variable_names_is_an_input() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let top = fragment(&run, "Makefile_");
+    let at = top.find("out = \"listed.out\"").unwrap_or_else(|| panic!("no rule:\n{top}"));
+    let rest = &top[at..];
+    let rule = &rest[..rest.find("cmds = [").expect("rule has commands")];
+    assert!(rule.contains("\"tools/ondisk\""), "{rule}");
 }
