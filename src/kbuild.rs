@@ -937,7 +937,31 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
     let mut named: Vec<String> = Vec::new();
     if rel.is_empty() {
         for c in &cmds {
-            for w in shell_words(c) {
+            let mut words = shell_words(c);
+            // A make the command starts reads a makefile that names tools too
+            // (`arch/x86/Makefile.postlink`: `CMD_RELOCS = arch/x86/tools/relocs`).
+            let mut after_f = false;
+            let mut from_makefiles: Vec<String> = Vec::new();
+            for w in &words {
+                if after_f {
+                    after_f = false;
+                    if let Some(path) = from_root("", w) {
+                        if let Ok(text) = std::fs::read_to_string(&path) {
+                            from_makefiles.extend(
+                                text.split(|c: char| {
+                                    c.is_whitespace() || matches!(c, '=' | '(' | ')' | ';' | ',' | '"' | '\'' | '$' | ':' | '\\')
+                                })
+                                .filter(|t| t.contains('/'))
+                                .map(str::to_string),
+                            );
+                        }
+                    }
+                } else if w == "-f" {
+                    after_f = true;
+                }
+            }
+            words.extend(from_makefiles);
+            for w in words {
                 let plain = w
                     .chars()
                     .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '+' | '/' | '@'));

@@ -19,6 +19,7 @@ fn kbuild_run(grants: &str) -> Run {
     fs::write(dir.join("main.c"), "#include \"gen.h\"\n").expect("write main.c");
     fs::write(dir.join("miss.c"), "#include \"nothere.h\"\n").expect("write miss.c");
     fs::write(dir.join("ord.c"), "#include <ord.h>\n").expect("write ord.c");
+    fs::write(dir.join("inner.mk"), "CMD_TOOL = tools/ondisk\n").expect("write inner.mk");
     fs::write(
         dir.join("run.sh"),
         "echo ${script_only} $MAKE $PATH $FIXTURE_AMBIENT $SCRIPT_TOOL $1\n",
@@ -423,6 +424,18 @@ fn a_file_a_script_variable_names_is_an_input() {
     assert_clean(&run);
     let top = fragment(&run, "Makefile_");
     let at = top.find("out = \"listed.out\"").unwrap_or_else(|| panic!("no rule:\n{top}"));
+    let rest = &top[at..];
+    let rule = &rest[..rest.find("cmds = [").expect("rule has commands")];
+    assert!(rule.contains("\"tools/ondisk\""), "{rule}");
+}
+
+/// A tool named in the makefile of a make the command starts is an input.
+#[test]
+fn a_tool_named_in_a_makefile_the_command_starts_is_an_input() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let top = fragment(&run, "Makefile_");
+    let at = top.find("out = \"inner.out\"").unwrap_or_else(|| panic!("no rule:\n{top}"));
     let rest = &top[at..];
     let rule = &rest[..rest.find("cmds = [").expect("rule has commands")];
     assert!(rule.contains("\"tools/ondisk\""), "{rule}");
