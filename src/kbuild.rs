@@ -60,6 +60,10 @@ struct Rule {
     /// Files the command names beside its target, not on disk and not
     /// prerequisites: outputs of this action if no rule makes them.
     side: Vec<String>,
+    /// The recipe does nothing (`@true`): the file is made as a side effect
+    /// of a prerequisite's recipe (`$(obj)/vmlinux.relocs: vmlinux`), and
+    /// `kbuild_declare` makes it an output of that action.
+    noop: bool,
     /// Every output of the recipe, this one included, when it makes several.
     /// Whoever uses one of them may use any (`foo.asn1.c` includes
     /// `foo.asn1.h`), so all of them are inputs.
@@ -1078,6 +1082,18 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
         }
     }
 
+    // A recipe of `true` and announcements only makes nothing itself.
+    let noop = cmds.iter().all(|c| {
+        statements(c)
+            .iter()
+            .all(|st| {
+                let first = st.split_whitespace().next();
+                // An `echo` that redirects is a command that makes a file.
+                (is_noise(st) && !(first == Some("echo") && st.contains('>')))
+                    || first == Some("true")
+            })
+    });
+
     RUN.with(|r| {
         let mut run = r.borrow_mut();
         if infra && run.env.is_none() {
@@ -1114,6 +1130,7 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
                 maybe_names: maybe_names.clone(),
                 maybe_dirs: maybe_dirs.clone(),
                 side: Vec::new(),
+                noop: false,
                 group: group.clone(),
             });
         }
@@ -1128,6 +1145,7 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
             maybe_names,
             maybe_dirs,
             side,
+            noop,
             group,
         });
     });
@@ -1289,6 +1307,9 @@ pub fn finish() -> Result<(), Error> {
                 doc.push_str(&format!("            {},\n", q(x)));
             }
             doc.push_str("        ],\n");
+        }
+        if rule.noop {
+            doc.push_str("        noop = True,\n");
         }
         if !rule.group.is_empty() {
             doc.push_str("        group = [\n");

@@ -15,7 +15,7 @@ export KBUILD_FLAG := set
 script_only := yes
 
 .PHONY: all sub
-all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o ord.o grp.o listed.out flask.h flask2.h other.h hid.h used.out tools/mk disk.out inc.o gen.bin inner.out
+all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o ord.o grp.o listed.out flask.h flask2.h other.h hid.h used.out tools/mk disk.out inc.o gen.bin inner.out prod.side
 
 # A header the compile includes but does not list as a prerequisite, as in
 # Kbuild, where building it first is a matter of ordering.
@@ -131,3 +131,12 @@ gen.bin:
 # arch/x86/Makefile.postlink names arch/x86/tools/relocs.
 inner.out:
 	make -f inner.mk > $@
+
+# A file made as a side effect of another recipe, with a rule that only
+# declares the dependency, as arch/x86/boot/compressed/vmlinux.relocs is made
+# by vmlinux's postlink step.
+prod.out:
+	echo made > $@; echo side > prod.side
+
+prod.side: prod.out
+	@true

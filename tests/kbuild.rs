@@ -440,3 +440,20 @@ fn a_tool_named_in_a_makefile_the_command_starts_is_an_input() {
     let rule = &rest[..rest.find("cmds = [").expect("rule has commands")];
     assert!(rule.contains("\"tools/ondisk\""), "{rule}");
 }
+
+/// A rule that does nothing, for a file its prerequisite's recipe makes, is
+/// marked, so that `kbuild_declare` makes the file an output of that action.
+#[test]
+fn a_rule_that_only_declares_a_dependency_is_marked_as_doing_nothing() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let top = fragment(&run, "Makefile_");
+    let at = top.find("out = \"prod.side\"").unwrap_or_else(|| panic!("no rule:\n{top}"));
+    let rest = &top[at..];
+    let rule = &rest[..rest.find("specs.append").unwrap_or(rest.len())];
+    assert!(rule.contains("noop = True"), "{rule}");
+    let at = top.find("out = \"prod.out\"").expect("the producer has a rule");
+    let rest = &top[at..];
+    let rule = &rest[..rest.find("specs.append").unwrap_or(rest.len())];
+    assert!(!rule.contains("noop"), "the producer is not a no-op:\n{rule}");
+}

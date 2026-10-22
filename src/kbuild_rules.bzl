@@ -52,17 +52,19 @@ def _kbuild_action_impl(ctx):
         # and go on rather than fail a build that does not need it.
         lines.append("[ -e %s ] || { echo 'kbuild: %s was not made by its command' >&2; : > %s; }" % (_quote(ctx.attr.out), ctx.attr.out, _quote(ctx.attr.out)))
     lines.append("cp " + _quote(ctx.attr.out) + " " + _quote(out.path))
+    for f in ctx.outputs.extra_outs:
+        lines.append("cp " + _quote(f.short_path) + " " + _quote(f.path))
     ctx.actions.write(script, "\n".join(lines) + "\n")
 
     ctx.actions.run_shell(
         inputs = depset([links, script], transitive = [inputs]),
-        outputs = [out],
+        outputs = [out] + ctx.outputs.extra_outs,
         command = "sh " + _quote(script.path),
         mnemonic = "Kbuild",
         progress_message = "KBUILD %s" % ctx.attr.out,
         use_default_shell_env = True,
     )
-    providers = [DefaultInfo(files = depset([out]))]
+    providers = [DefaultInfo(files = depset([out] + ctx.outputs.extra_outs))]
     if ctx.attr.thin:
         providers.append(KbuildInfo(members = depset(ctx.files.srcs, transitive = members)))
     return providers
@@ -79,6 +81,8 @@ _kbuild_action = rule(
         "thin": attr.bool(default = False),
         "dirs": attr.string_list(),
         "lenient": attr.bool(default = False),
+        # Files the commands also make, declared as outputs.
+        "extra_outs": attr.output_list(),
     },
 )
 
@@ -86,7 +90,7 @@ def _rule_name(out):
     name = "".join([c if c.isalnum() else "_" for c in out.elems()])
     return name + "_" if name == out else name
 
-def kbuild_spec(name, out, srcs = [], cmds = [], env = {}, thin = False, infra = False, maybe = [], maybe_names = [], maybe_dirs = [], group = [], side = []):
+def kbuild_spec(name, out, srcs = [], cmds = [], env = {}, thin = False, infra = False, maybe = [], maybe_names = [], maybe_dirs = [], group = [], side = [], noop = False):
     """One target of the build: run `cmds` to produce `out` from `srcs`.
 
     This only describes the target; `kbuild_declare` creates it, once it has
@@ -109,6 +113,8 @@ def kbuild_spec(name, out, srcs = [], cmds = [], env = {}, thin = False, infra =
         `maybe_dirs/name` is also a source where another target produces it.
       group: every output of the recipe, when it makes several; whoever
         uses one of them gets them all as inputs.
+      noop: the commands do nothing: `out` is made as a side effect of a
+        prerequisite's commands, and becomes an output of that action.
       side: files the command names beside `out` that nothing is known to
         produce. Each that no target in the build produces is an output of
         this action too (`genheaders flask.h av_permissions.h`).
@@ -128,6 +134,7 @@ def kbuild_spec(name, out, srcs = [], cmds = [], env = {}, thin = False, infra =
         maybe_dirs = maybe_dirs,
         group = group,
         side = side,
+        noop = noop,
         lenient = False,
     )
 
@@ -138,7 +145,22 @@ def kbuild_declare(specs):
     different make, which the compile's own make cannot see; it becomes a
     source here, where every target's output is known.
     """
+    # A rule that does nothing, for a file its prerequisite's commands make
+    # (`$(obj)/vmlinux.relocs: vmlinux`), is that prerequisite's output.
+    producers = {s.out: True for s in specs if not s.noop}
+    absorbed = {}
+    for s in specs:
+        if s.noop:
+            for x in s.srcs:
+                if x in producers:
+                    absorbed.setdefault(x, []).append(s.out)
+                    break
+    taken = {o: True for outs_ in absorbed.values() for o in outs_}
+    specs = [s for s in specs if s.out not in taken]
+
     outs = {s.out: True for s in specs}
+    for o in taken:
+        outs[o] = True
     groups = {s.out: s.group for s in specs if s.group}
 
     # A file a command names that no target produces is an output of the
@@ -212,6 +234,7 @@ def kbuild_declare(specs):
             thin = s.thin,
             dirs = s.maybe_dirs,
             lenient = s.lenient,
+            extra_outs = absorbed.get(s.out, []),
         )
     if infra:
         native.filegroup(
