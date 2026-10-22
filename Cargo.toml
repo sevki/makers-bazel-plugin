@@ -1,0 +1,20 @@
+[package]
+name = "makers-bazel-plugin"
+version = "0.1.0"
+edition = "2021"
+description = "BUILD.bazel generation for makers: per-target genrules, or one hermetic action for recursive makes such as the Linux kernel"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/sevki/makers-bazel-plugin"
+
+[dependencies]
+makers-plugin = { git = "https://github.com/sevki/makers" }
+
+[features]
+# The component that can build the Linux kernel. Separate because expanding
+# recipes cannot be `deterministic`; see src/lib.rs.
+kbuild = []
+
+[lib]
+crate-type = ["cdylib"]
+
+[workspace]
