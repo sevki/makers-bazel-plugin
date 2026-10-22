@@ -470,3 +470,18 @@ fn the_directory_before_a_dotdot_is_created() {
     let rule = &rest[..rest.find("specs.append").unwrap_or(rest.len())];
     assert!(rule.contains("mkdirs = [") && rule.contains("\"nodir\""), "{rule}");
 }
+
+/// Whatever a generated source was made from comes along to its consumer,
+/// since the consumer cannot be scanned for what the source embeds.
+#[test]
+fn a_consumer_of_a_generated_source_gets_the_sources_inputs() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let rules = run.artifact("kbuild/rules.bzl");
+    assert!(rules.contains("by_out"), "{rules}");
+    let top = fragment(&run, "Makefile_");
+    let at = top.find("out = \"gsrc.S\"").unwrap_or_else(|| panic!("no rule:\n{top}"));
+    let rest = &top[at..];
+    let rule = &rest[..rest.find("cmds = [").expect("rule has commands")];
+    assert!(rule.contains("\"gdata.bin\""), "{rule}");
+}

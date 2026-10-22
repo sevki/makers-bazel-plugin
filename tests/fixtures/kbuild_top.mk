@@ -15,7 +15,7 @@ export KBUILD_FLAG := set
 script_only := yes
 
 .PHONY: all sub
-all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o ord.o grp.o listed.out flask.h flask2.h other.h hid.h used.out tools/mk disk.out inc.o gen.bin inner.out prod.side dots.out
+all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o ord.o grp.o listed.out flask.h flask2.h other.h hid.h used.out tools/mk disk.out inc.o gen.bin inner.out prod.side dots.out gsrc.o
 
 # A header the compile includes but does not list as a prerequisite, as in
 # Kbuild, where building it first is a matter of ordering.
@@ -145,3 +145,14 @@ prod.side: prod.out
 # arch/x86/boot/compressed/../voffset.h does.
 dots.out:
 	echo made > nodir/../dots.out
+
+# A compile of a generated source that embeds a generated file by name, as
+# piggy.S embeds vmlinux.bin.gz: the source's own inputs come along.
+gsrc.o: gsrc.S
+	cc -c -I. -o $@ $<
+
+gsrc.S: gdata.bin
+	echo '.incbin "gdata.bin"' > $@
+
+gdata.bin:
+	echo data > $@

@@ -200,6 +200,7 @@ def kbuild_declare(specs):
                 ))
     specs = specs + extra
     outs = {s.out: True for s in specs}
+    by_out = {s.out: s for s in specs}
     seen = {}
     infra = False
     for s in specs:
@@ -221,6 +222,16 @@ def kbuild_declare(specs):
                 if m in outs and m != s.out and m not in have:
                     srcs.append(m)
                     have[m] = True
+        # A source another action generates cannot be read for what it
+        # includes or embeds (`piggy.S` has `.incbin` of the compressed
+        # kernel), so what the generator was given comes along.
+        for x in list(srcs):
+            gen = by_out.get(x)
+            if gen and (x.endswith(".S") or x.endswith(".s") or x.endswith(".c")):
+                for y in gen.srcs:
+                    if y not in have and y != s.out:
+                        srcs.append(y)
+                        have[y] = True
         for x in list(srcs):
             for g in groups.get(x, []):
                 if g not in have and g != s.out:
