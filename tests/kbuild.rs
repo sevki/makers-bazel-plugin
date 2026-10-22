@@ -20,6 +20,11 @@ fn kbuild_run(grants: &str) -> Run {
     fs::write(dir.join("miss.c"), "#include \"nothere.h\"\n").expect("write miss.c");
     fs::write(dir.join("ord.c"), "#include <ord.h>\n").expect("write ord.c");
     fs::write(
+        dir.join("run.sh"),
+        "echo ${script_only} $MAKE $PATH $1\n",
+    )
+    .expect("write run.sh");
+    fs::write(
         dir.join("inc.S"),
         "\t.incbin\t\"present.bin\"\n\t.incbin\t\"gen.bin\"\n",
     )
@@ -386,4 +391,20 @@ fn files_assembly_embeds_by_name_are_inputs_or_candidates() {
     let srcs = &rule[..rule.find("cmds = [").expect("rule has commands")];
     assert!(srcs.contains("\"present.bin\""), "{rule}");
     assert!(rule.contains("maybe = [") && rule.contains("\"gen.bin\""), "{rule}");
+}
+
+/// A script reads variables the recipe's environment may not carry (Kbuild's
+/// `link-vmlinux.sh` reads `MAKE` and `srctree`): they are expanded for the
+/// target and exported to the action. `MAKE` is the make on the PATH, and the
+/// machine's own `PATH` is not baked in.
+#[test]
+fn the_variables_a_script_reads_are_exported_to_its_action() {
+    let run = kbuild_run(GRANTS);
+    assert_clean(&run);
+    let top = fragment(&run, "Makefile_");
+    let env = &top[top.find("KBUILD_ENV = {").expect("an environment")..];
+    let env = &env[..env.find("\n}").expect("its end")];
+    assert!(env.contains("\"script_only\": \"yes\""), "{env}");
+    assert!(env.contains("\"MAKE\": \"make\""), "{env}");
+    assert!(!env.contains("\"PATH\""), "{env}");
 }

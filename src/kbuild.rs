@@ -676,6 +676,48 @@ fn reads_headers(cmds: &[String]) -> bool {
     })
 }
 
+/// The variables a script reads: `$NAME` and `${NAME}` in the scripts a
+/// command runs, which are on disk. Kbuild exports many of them to the make
+/// that runs the script (`MAKE`, `srctree`, `SRCARCH`...), and the host does
+/// not report what the make inherited from the make that started it, which
+/// for Kbuild's re-executing top-level make is those same exports.
+fn script_variables(cmds: &[String]) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    for c in cmds {
+        for w in shell_words(c) {
+            if !w.ends_with(".sh") {
+                continue;
+            }
+            let Some(path) = from_root("", &w) else {
+                continue;
+            };
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let bytes = text.as_bytes();
+            let mut i = 0;
+            while i < bytes.len() {
+                if bytes[i] != b'$' {
+                    i += 1;
+                    continue;
+                }
+                i += 1;
+                if i < bytes.len() && bytes[i] == b'{' {
+                    i += 1;
+                }
+                let start = i;
+                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                    i += 1;
+                }
+                if i > start && !bytes[start].is_ascii_digit() {
+                    names.insert(text[start..i].to_string());
+                }
+            }
+        }
+    }
+    names
+}
+
 fn q(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
@@ -967,6 +1009,33 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
         })
         .collect();
 
+    // What a script reads that the environment above does not carry, as make
+    // sees it for this target. `MAKE` is the make on the PATH, not the one
+    // that happened to run the dry run.
+    let mut script_env: Vec<(String, String)> = Vec::new();
+    if infra && rel.is_empty() {
+        for var in script_variables(&cmds) {
+            // The machine's own, not the build's.
+            if matches!(
+                var.as_str(),
+                "PATH" | "HOME" | "SHELL" | "USER" | "LOGNAME" | "PWD" | "OLDPWD" | "TMPDIR" | "TERM"
+                    | "LANG" | "IFS" | "LD_LIBRARY_PATH"
+            ) || var.starts_with("LC_")
+            {
+                continue;
+            }
+            let value = if var == "MAKE" {
+                "make".to_string()
+            } else {
+                match target.expand(&format!("$({var})")) {
+                    Ok(v) if !v.is_empty() => v,
+                    _ => continue,
+                }
+            };
+            script_env.push((var, value));
+        }
+    }
+
     RUN.with(|r| {
         let mut run = r.borrow_mut();
         if infra && run.env.is_none() {
@@ -977,6 +1046,14 @@ pub fn analyze(target: &Node) -> Result<(), Error> {
                     e.message
                 )),
             }
+        }
+        if let Some(env) = run.env.as_mut() {
+            for (k, v) in script_env {
+                if !env.iter().any(|(have, _)| *have == k) {
+                    env.push((k, v));
+                }
+            }
+            env.sort();
         }
         let group: Vec<String> = if siblings.is_empty() {
             Vec::new()

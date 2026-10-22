@@ -11,6 +11,8 @@ define rule_cc
 	$(call cmd,cc); scripts/basic/fixdep $@.d $@ 'cmd_$@'; rm -f $@.d
 endef
 export KBUILD_FLAG := set
+# Read by a script, and not exported, so the recipe's environment lacks it.
+script_only := yes
 
 .PHONY: all sub
 all: sub app gen.h img-out.gen grp.c1 grp.h1 gen2.o plain.o miss.o ord.o grp.o listed.out flask.h flask2.h other.h hid.h used.out tools/mk disk.out inc.o gen.bin
